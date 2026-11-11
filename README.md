@@ -81,13 +81,14 @@ También acepta variantes como `@bot seguime`, `@bot ven acá` o `@bot detente p
 ### Prueba end-to-end
 
 `npm run smoke:follow` conecta un segundo bot, "Probador", que actúa como jugador. Construye por RCON una
-arena en el cielo con un muro de una sola abertura y un escalón, y verifica que el agente:
+arena en el cielo con un muro de una sola abertura, un escalón y una franja de arbustos de bayas, y verifica que el agente:
 
 - lo **siga** por un recorrido de ~80 bloques rodeando obstáculos (a ≤ 5 bloques),
+- **no se haga daño** en el camino (su vida se monitorea por RCON cada 0,4 s),
 - se **quede quieto** tras `para` mientras el probador se aleja,
 - **llegue** tras `ven` desde detrás del muro.
 
-Al terminar borra la arena y deja el mundo como estaba. Resultado actual: **6/6 chequeos** (ejecutado dos veces).
+Al terminar borra la arena y deja el mundo como estaba. Resultado actual: **7/7 chequeos** (ejecutado dos veces).
 
 ## Decisiones técnicas (y bugs encontrados en el camino)
 
@@ -101,6 +102,12 @@ Al terminar borra la arena y deja el mundo como estaba. Resultado actual: **6/6 
 - **Bug de mineflayer con hardcore.** En 26.1, `bot.game.hardcore` siempre vale `false`, porque
   mineflayer busca `isHardcore` dentro de `worldState` y el campo viene en la raíz del paquete de
   login. La protección anti-hardcore lee el paquete crudo (ver `src/bot/safety.ts`, con test).
+- **Arbustos de bayas.** Probando en el juego, el bot se pinchaba al cruzar bosques de abeto.
+  El pathfinder trata como "seguro" todo bloque sin colisión, y el arbusto no tiene colisión.
+  Primero lo agregué a los bloques a evitar (junto con la rosa marchita, la nieve polvo y el
+  fuego de almas), pero la prueba e2e seguía marcando daño. El log mostró por qué: la caja del
+  bot (0,6 de ancho) **rozaba** el arbusto al doblar junto a él. Solución: un costo extra por
+  pasar al lado de un bloque dañino (`src/bot/pathing.ts`). Resultado: 0 daño.
 - **Vitest en Windows.** Si la terminal abre la carpeta como `c:\` (minúscula, típico de VS Code),
   Vitest carga su módulo dos veces y todos los tests fallan. `scripts/vitest.mjs` normaliza la ruta.
 

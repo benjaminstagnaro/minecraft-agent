@@ -2,8 +2,9 @@ import type { Bot } from 'mineflayer';
 import type { Vec3 } from 'vec3';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { Logger } from '../logger.js';
+import { createMovements } from './pathing.js';
 
-const { Movements, goals } = pathfinderPkg;
+const { goals } = pathfinderPkg;
 
 type Entity = Bot['entity'];
 
@@ -64,6 +65,8 @@ export class MovementController {
   private lastHelpRequestMs = 0;
   private noPathCount = 0;
   private disposed = false;
+  /** El jugador seguido salió de nuestro rango de visión (para avisar al reencontrarlo). */
+  private lostSight = false;
 
   constructor(
     private readonly bot: Bot,
@@ -73,12 +76,7 @@ export class MovementController {
   ) {
     this.options = { ...DEFAULT_OPTIONS, ...options };
 
-    const movements = new Movements(bot);
-    // No rompe bloques para abrirse paso: si te sigue a tu casa, no te destruye las paredes.
-    movements.canDig = false;
-    movements.allowSprinting = true;
-    movements.allowParkour = true;
-    bot.pathfinder.setMovements(movements);
+    bot.pathfinder.setMovements(createMovements(bot));
 
     bot.on('goal_reached', this.onGoalReached);
     bot.on('path_update', this.onPathUpdate);
@@ -206,13 +204,21 @@ export class MovementController {
       // Si el jugador salió de rango y volvió (o murió y reapareció), mineflayer crea una
       // entidad NUEVA. El objetivo viejo apuntaría a una entidad que ya no se actualiza.
       if (target !== this.trackedEntity) {
-        this.log.debug(`Vuelvo a ver a ${username}; retomo el seguimiento`);
+        if (this.lostSight) {
+          this.lostSight = false;
+          this.log.info(`Vuelvo a ver a ${username}; retomo el seguimiento`);
+          this.say(`¡Te veo de nuevo, ${username}! Te sigo.`);
+        }
         this.followEntity(target);
       }
     } else if (this.trackedEntity && this.lastKnownTargetPos) {
-      // Lo perdimos de vista: ir a donde lo vimos por última vez.
-      this.log.info(`Perdí de vista a ${username}; voy a su última posición conocida`);
+      // Lo perdimos de vista (muy lejos o se teletransportó): ir a donde lo vimos por última vez.
+      this.lostSight = true;
       this.trackedEntity = undefined;
+      this.log.info(
+        `Perdí de vista a ${username}; voy a su última posición conocida ${this.formatPos(this.lastKnownTargetPos)}`,
+      );
+      this.say('Te perdí de vista. Voy a donde te vi por última vez.');
       this.setGoalNear(this.lastKnownTargetPos);
     }
 
@@ -313,6 +319,7 @@ export class MovementController {
     this.stillSinceMs = undefined;
     this.recoveries = 0;
     this.noPathCount = 0;
+    this.lostSight = false;
   }
 
   private findPlayerEntity(username: string): Entity | undefined {

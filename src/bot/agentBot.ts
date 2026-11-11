@@ -84,6 +84,21 @@ export function createAgentBot(config: AppConfig): AgentBot {
     handleCommand(command, username, movement, say);
   });
 
+  // Registrar cada vez que pierde vida y sobre qué bloque estaba: así se diagnostican
+  // cosas como "se pincha con los arbustos de bayas" sin tener que estar mirando el juego.
+  let lastHealth: number | undefined;
+  bot.on('health', () => {
+    if (lastHealth !== undefined && bot.health < lastHealth) {
+      const p = bot.entity.position;
+      log.warn(
+        `Recibí daño: ${lastHealth.toFixed(1)} → ${bot.health.toFixed(1)} de vida en ` +
+          `(${p.x.toFixed(2)}, ${p.y.toFixed(2)}, ${p.z.toFixed(2)}); tocando: ${blocksTouching(bot).join(', ') || 'nada'}`,
+      );
+    }
+    lastHealth = bot.health;
+  });
+  bot.on('death', () => log.warn('Morí. Reaparezco en el punto de spawn.'));
+
   bot.on('kicked', (reason) => {
     log.warn('El servidor me expulsó', reason);
     // Otro proceso entró con el mismo nombre. Si reconectamos, los dos se expulsarían
@@ -103,6 +118,25 @@ export function createAgentBot(config: AppConfig): AgentBot {
   });
 
   return { bot, ended };
+}
+
+/**
+ * Bloques (distintos de aire) que se cruzan con la caja de colisión del jugador
+ * (0,6 de ancho x 1,8 de alto). Más útil que mirar solo el bloque del centro: un
+ * arbusto de bayas hace daño aunque solo lo rocemos con el borde.
+ */
+function blocksTouching(bot: Bot): string[] {
+  const p = bot.entity.position;
+  const names = new Set<string>();
+  for (let x = Math.floor(p.x - 0.3); x <= Math.floor(p.x + 0.3); x++) {
+    for (let y = Math.floor(p.y); y <= Math.floor(p.y + 1.8); y++) {
+      for (let z = Math.floor(p.z - 0.3); z <= Math.floor(p.z + 0.3); z++) {
+        const block = bot.blockAt(p.offset(x - p.x, y - p.y, z - p.z).floor());
+        if (block && block.name !== 'air') names.add(`${block.name}@${x},${y},${z}`);
+      }
+    }
+  }
+  return [...names];
 }
 
 function handleCommand(

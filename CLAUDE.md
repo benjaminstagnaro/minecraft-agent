@@ -131,7 +131,7 @@ minecraft-agent/
 
 ## Estado actual
 
-- [x] Etapa 1: Base: código listo y prueba end-to-end `npm run smoke:follow` OK 6/6 (2 corridas). Falta la prueba manual de Benjamín en el juego antes del merge a `main`.
+- [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour). Pendiente: merge a `main`.
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
   - Java 25: los scripts usan el del launcher de Minecraft automáticamente (el `java` del PATH es Java 8).
@@ -141,4 +141,5 @@ minecraft-agent/
 - **Paper 26.1.2 no sirve con mineflayer**: corrige ("teletransporta de vuelta") cada movimiento en que el bot toca una pared (~13/s); eso borra el `onGround` y el bot no puede saltar escalones. En vanilla: 0 correcciones. Medido con un bot de diagnóstico y el evento `forcedMove`.
 - Descartado como causa: el paquete `tick_end` (mineflayer no lo envía; necesario recién en 26.3, ya arreglado en mineflayer master, PR #4137) y el flag `hasHorizontalCollision`. Ninguno cambió nada en 26.1.
 - `bot.game.hardcore` es siempre `false` en 26.1 (bug de mineflayer): la protección lee `isHardcore` del paquete de login crudo.
+- Bloques atravesables dañinos (`sweet_berry_bush`, `wither_rose`, `powder_snow`, `soul_fire`): no basta con `blocksToAvoid`, porque el bot los roza con su caja de 0,6 al doblar. Se usa además un costo por casilla vecina (`exclusionAreasStep`, `src/bot/pathing.ts`). La prueba e2e mide la vida del agente por RCON.
 - Windows: detener un proceso `npm run ...` deja vivo al hijo `node`. Revisar procesos huérfanos (dos agentes con el mismo nombre se expulsan mutuamente; el agente ahora detecta `duplicate_login` y no reintenta).

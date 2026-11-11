@@ -12,6 +12,7 @@
  *     │        ▒            ┊       │
  *     │  D ····▒··········· C       │   ▒ escalón de 1 bloque (hay que saltarlo)
  *     └─────────────────────────────┘
+ *   + una franja de arbustos de bayas cruzando el tramo A→B (hacen daño: hay que rodearlos)
  *
  * Luego:
  *   1. "@bot sígueme" y recorre A→B→C→D→A: el agente debe rodear el muro por la abertura.
@@ -27,11 +28,12 @@ import mineflayer, { type Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
 import { loadConfig } from '../src/config.js';
+import { createMovements } from '../src/bot/pathing.js';
 import { verifyTestServer } from '../src/bot/safety.js';
 import { ENV_FILE } from './lib/paths.js';
 import { rconCommand, readRconOptions, type RconOptions } from './lib/rcon.js';
 
-const { pathfinder, Movements, goals } = pathfinderPkg;
+const { pathfinder, goals } = pathfinderPkg;
 
 const TESTER_NAME = 'Probador';
 const ARENA_Y = 200; // altura del piso de la arena (muy por sobre el terreno)
@@ -143,6 +145,51 @@ async function buildArena(rcon: RconOptions, ox: number, oz: number): Promise<vo
     `fill ${ox - 4} ${y + 1} ${oz + 2} ${ox - 4} ${y + 1} ${z2 - 1} stone_bricks`,
     filled,
   );
+  // Franja de arbustos de bayas (sobre tierra) cruzando el tramo A→B, con un paso libre
+  // junto al muro. Atravesarlos hace daño: el agente debe rodearlos.
+  await rconExpect(rcon, `fill ${ox} ${y} ${z1 + 1} ${ox} ${y} ${oz - 5} dirt`, filled);
+  await rconExpect(
+    rcon,
+    `fill ${ox} ${y + 1} ${z1 + 1} ${ox} ${y + 1} ${oz - 5} sweet_berry_bush[age=3]`,
+    filled,
+  );
+}
+
+/** Vigila la vida del agente (por RCON) y guarda la mínima. */
+class HealthWatch {
+  min = Infinity;
+  start: number | undefined;
+  private timer: NodeJS.Timeout | undefined;
+  private busy = false;
+
+  constructor(
+    private readonly rcon: RconOptions,
+    private readonly agentName: string,
+  ) {}
+
+  async read(): Promise<number | undefined> {
+    const response = await rconCommand(this.rcon, `data get entity ${this.agentName} Health`);
+    const match = /([\d.]+)f?\s*$/.exec(response.trim());
+    return match ? Number(match[1]) : undefined;
+  }
+
+  async begin(): Promise<void> {
+    this.start = await this.read();
+    this.timer = setInterval(() => {
+      if (this.busy) return;
+      this.busy = true;
+      this.read()
+        .then((health) => {
+          if (health !== undefined) this.min = Math.min(this.min, health);
+        })
+        .catch(() => undefined)
+        .finally(() => (this.busy = false));
+    }, 400);
+  }
+
+  end(): void {
+    clearInterval(this.timer);
+  }
 }
 
 async function removeArena(rcon: RconOptions, ox: number, oz: number): Promise<void> {
@@ -208,9 +255,8 @@ async function main(): Promise<void> {
     bot.once('kicked', (reason) => reject(new Error(`Probador expulsado: ${reason}`)));
     bot.once('error', reject);
   });
-  const movements = new Movements(bot);
-  movements.canDig = false; // el probador tampoco rompe nada
-  bot.pathfinder.setMovements(movements);
+  // El probador se mueve con la misma configuración que el agente (no rompe nada, esquiva bayas).
+  bot.pathfinder.setMovements(createMovements(bot));
 
   if (!bot.players[agentName]) {
     throw new Error(`${agentName} no está conectado. Inicia el agente con: npm run dev`);
@@ -246,9 +292,11 @@ async function main(): Promise<void> {
     record('Responde a "sígueme"', followText !== null, followText ?? 'sin respuesta');
 
     const agentMeter = new PathMeter(() => agentPos(bot, agentName));
+    const health = new HealthWatch(rcon, agentName);
+    await health.begin();
     let worst = 0;
     for (const [label, [x, z]] of [
-      ['A→B', B],
+      ['A→B (esquivando bayas)', B],
       ['B→C (por la abertura)', C],
       ['C→D (saltando el escalón)', D],
       ['D→A (rodeando el muro)', A],
@@ -271,6 +319,13 @@ async function main(): Promise<void> {
       'Sigue al jugador rodeando obstáculos',
       worst <= FOLLOW_TOLERANCE,
       `peor distancia ${worst.toFixed(1)} (máx ${FOLLOW_TOLERANCE}); el agente caminó ${agentWalked.toFixed(0)} bloques`,
+    );
+    health.end();
+    const startHealth = health.start ?? NaN;
+    record(
+      'No se hace daño en el recorrido (bayas)',
+      Number.isFinite(health.min) && health.min >= startHealth,
+      `vida al inicio ${startHealth.toFixed(1)}, mínima ${health.min.toFixed(1)}`,
     );
 
     // ── 2. Para ────────────────────────────────────────────────────────────────
