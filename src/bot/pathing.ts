@@ -81,3 +81,23 @@ export function createMovements(bot: Bot): InstanceType<typeof Movements> {
   movements.exclusionAreasStep.push((block) => brushPenalty(block.position, blockTypeAt, harmful));
   return movements;
 }
+
+/** Costo que el pathfinder interpreta como "prohibido" (>= 100). */
+const FORBIDDEN = 100;
+
+type PathBlock = Parameters<InstanceType<typeof Movements>['safeToBreak']>[0];
+
+/**
+ * Movimiento "de trabajo" (por ejemplo, para talar): igual que el normal, pero puede
+ * romper bloques en el camino SOLO si `canBreak` lo permite (ej: hojas naturales y el
+ * bloque objetivo). Nunca abre un hoyo en una pared tuya para llegar a un árbol.
+ */
+export function createWorkMovements(
+  bot: Bot,
+  canBreak: (block: PathBlock) => boolean,
+): InstanceType<typeof Movements> {
+  const movements = createMovements(bot);
+  movements.canDig = true;
+  movements.exclusionAreasBreak.push((block) => (canBreak(block) ? 0 : FORBIDDEN));
+  return movements;
+}

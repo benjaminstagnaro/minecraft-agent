@@ -2,8 +2,12 @@ import mineflayer, { type Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { AppConfig } from '../config.js';
 import { createLogger } from '../logger.js';
+import { collectBlockTool } from '../tools/collectBlock.js';
+import { getStatusTool } from '../tools/getStatus.js';
+import { ActionRunner } from '../tools/runner.js';
 import { HELP_TEXT, parseCommand, type Command } from './commands.js';
 import { MovementController } from './movement.js';
+import { resolveBlockGroup } from './names.js';
 import { isHardcoreLogin } from './safety.js';
 
 const { pathfinder } = pathfinderPkg;
@@ -42,6 +46,7 @@ export function createAgentBot(config: AppConfig): AgentBot {
   bot.loadPlugin(pathfinder);
 
   let movement: MovementController | undefined;
+  let runner: ActionRunner | undefined;
   let safetyStop = false;
   let doNotReconnect: string | undefined;
 
@@ -70,18 +75,22 @@ export function createAgentBot(config: AppConfig): AgentBot {
   bot.once('spawn', () => {
     if (safetyStop) return;
     movement = new MovementController(bot, createLogger('movimiento'), say);
+    runner = new ActionRunner(bot, say);
     const p = bot.entity.position;
     log.info(`Apareció en (${p.x.toFixed(0)}, ${p.y.toFixed(0)}, ${p.z.toFixed(0)})`);
     say(`¡Hola! Soy ${bot.username}, tu agente. Escribe "@bot ayuda" para ver qué sé hacer.`);
   });
 
   bot.on('chat', (username, message) => {
-    if (username === bot.username || !movement) return;
+    if (username === bot.username || !movement || !runner) return;
     const command = parseCommand(message, bot.username);
     if (!command) return;
 
     chatLog.info(`${username}: ${message}`, { comando: command.kind });
-    handleCommand(command, username, movement, say);
+    handleCommand(command, username, { bot, movement, runner, say }).catch((error: unknown) => {
+      log.error(`Error al ejecutar "${command.kind}"`, error);
+      say('Algo falló al ejecutar eso. Revisa el log del agente.');
+    });
   });
 
   // Registrar cada vez que pierde vida y sobre qué bloque estaba: así se diagnostican
@@ -112,6 +121,7 @@ export function createAgentBot(config: AppConfig): AgentBot {
   const ended = new Promise<BotEnd>((resolve) => {
     bot.once('end', (reason) => {
       movement?.dispose();
+      void runner?.cancel('el bot se desconectó');
       log.info(`Desconectado (${reason})`);
       resolve(doNotReconnect ? { reason, doNotReconnect } : { reason });
     });
@@ -139,25 +149,66 @@ function blocksTouching(bot: Bot): string[] {
   return [...names];
 }
 
-function handleCommand(
+interface CommandContext {
+  bot: Bot;
+  movement: MovementController;
+  runner: ActionRunner;
+  say: (message: string) => void;
+}
+
+/**
+ * Ejecuta un comando. Regla: una orden nueva reemplaza a la anterior (si estaba juntando
+ * troncos y le dices "sígueme", deja de juntar y te sigue). "@bot para" detiene todo.
+ */
+async function handleCommand(
   command: Command,
   username: string,
-  movement: MovementController,
-  say: (message: string) => void,
-): void {
+  ctx: CommandContext,
+): Promise<void> {
+  const { bot, movement, runner, say } = ctx;
+
   switch (command.kind) {
     case 'follow':
+      await runner.cancel('reemplazada por "sígueme"');
       movement.follow(username);
       break;
     case 'come':
+      await runner.cancel('reemplazada por "ven"');
       movement.comeTo(username);
       break;
-    case 'stop':
-      movement.stop();
+    case 'stop': {
+      const wasWorking = await runner.cancel('cancelado por el jugador');
+      // Si estaba trabajando, el aviso "Detenido: ..." ya lo da la acción cancelada.
+      movement.stop(wasWorking);
       break;
+    }
     case 'help':
       say(HELP_TEXT);
       break;
+    case 'status': {
+      const result = await runner.run(getStatusTool, {});
+      say(result.message);
+      break;
+    }
+    case 'collect': {
+      const group = resolveBlockGroup(
+        command.what,
+        (name) => bot.registry.blocksByName[name] !== undefined,
+      );
+      if (!group) {
+        say(`No sé qué es "${command.what}". Prueba con troncos, tierra, arena, grava o piedra.`);
+        return;
+      }
+      movement.stop(true);
+      say(`Voy a juntar ${command.count} ${group.label}.`);
+      const result = await runner.run(collectBlockTool, {
+        blocks: group.blocks,
+        count: command.count,
+        label: group.label,
+      });
+      say(result.message);
+      break;
+    }
     case 'unknown':
       say(`No entendí "${command.text}". ${HELP_TEXT}`);
       break;

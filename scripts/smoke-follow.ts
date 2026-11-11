@@ -24,72 +24,26 @@
  * Uso: npm run smoke:follow
  */
 import { setTimeout as sleep } from 'node:timers/promises';
-import mineflayer, { type Bot } from 'mineflayer';
+import type { Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { Vec3 } from 'vec3';
 import { loadConfig } from '../src/config.js';
-import { createMovements } from '../src/bot/pathing.js';
-import { verifyTestServer } from '../src/bot/safety.js';
 import { ENV_FILE } from './lib/paths.js';
 import { rconCommand, readRconOptions, type RconOptions } from './lib/rcon.js';
+import {
+  connectTester,
+  finish,
+  rconExpect,
+  record,
+  TESTER_NAME,
+  waitFor,
+  waitForAgentChat,
+} from './lib/smoke.js';
 
-const { pathfinder, goals } = pathfinderPkg;
-
-const TESTER_NAME = 'Probador';
+const { goals } = pathfinderPkg;
 const ARENA_Y = 200; // altura del piso de la arena (muy por sobre el terreno)
 const HALF = 16; // la arena va de -16 a +16 alrededor del origen
 const FOLLOW_TOLERANCE = 5; // followDistance (2) + margen por inercia y desniveles
-
-interface CheckResult {
-  name: string;
-  ok: boolean;
-  detail: string;
-}
-
-const results: CheckResult[] = [];
-function record(name: string, ok: boolean, detail: string): void {
-  results.push({ name, ok, detail });
-  console.log(`${ok ? '✔' : '✖'} ${name}: ${detail}`);
-}
-
-async function waitFor(
-  predicate: () => boolean,
-  timeoutMs: number,
-  everyMs = 250,
-): Promise<boolean> {
-  const deadline = Date.now() + timeoutMs;
-  while (Date.now() < deadline) {
-    if (predicate()) return true;
-    await sleep(everyMs);
-  }
-  return predicate();
-}
-
-/** Espera un mensaje de chat del agente que calce con `pattern`. */
-function waitForAgentChat(
-  bot: Bot,
-  agentName: string,
-  pattern: RegExp,
-  timeoutMs: number,
-): Promise<string | null> {
-  return new Promise((resolve) => {
-    const onChat = (username: string, message: string): void => {
-      if (username === agentName && pattern.test(message)) {
-        cleanup();
-        resolve(message);
-      }
-    };
-    const timer = setTimeout(() => {
-      cleanup();
-      resolve(null);
-    }, timeoutMs);
-    const cleanup = (): void => {
-      clearTimeout(timer);
-      bot.off('chat', onChat);
-    };
-    bot.on('chat', onChat);
-  });
-}
 
 /** Mide cuánto camina una entidad (suma de tramos), muestreando su posición. */
 class PathMeter {
@@ -109,11 +63,6 @@ class PathMeter {
     clearInterval(this.timer);
     return this.total;
   }
-}
-
-async function rconExpect(rcon: RconOptions, command: string, ok: RegExp): Promise<void> {
-  const response = await rconCommand(rcon, command);
-  if (!ok.test(response)) throw new Error(`RCON "${command}" respondió: ${response}`);
 }
 
 /** Construye la arena alrededor de (ox, oz). */
@@ -235,32 +184,9 @@ function distanceToAgent(bot: Bot, agentName: string): number {
 
 async function main(): Promise<void> {
   const config = loadConfig(ENV_FILE);
-  const { host, port, version } = config.server;
   const agentName = config.bot.name;
-
-  // El probador también respeta la regla 1: solo entra al servidor de pruebas.
-  const check = await verifyTestServer({
-    host,
-    port,
-    marker: config.safety.serverMarker,
-    expectedVersion: version,
-  });
-  if (!check.ok) throw new Error(check.reason);
-
   const rcon = readRconOptions();
-  const bot = mineflayer.createBot({ host, port, version, username: TESTER_NAME, auth: 'offline' });
-  bot.loadPlugin(pathfinder);
-  await new Promise<void>((resolve, reject) => {
-    bot.once('spawn', () => resolve());
-    bot.once('kicked', (reason) => reject(new Error(`Probador expulsado: ${reason}`)));
-    bot.once('error', reject);
-  });
-  // El probador se mueve con la misma configuración que el agente (no rompe nada, esquiva bayas).
-  bot.pathfinder.setMovements(createMovements(bot));
-
-  if (!bot.players[agentName]) {
-    throw new Error(`${agentName} no está conectado. Inicia el agente con: npm run dev`);
-  }
+  const bot = await connectTester(config);
 
   // Origen de la arena: sobre donde está el agente (así los chunks ya están cargados).
   await rconCommand(rcon, `tp ${TESTER_NAME} ${agentName}`);
@@ -362,6 +288,21 @@ async function main(): Promise<void> {
     );
     const arrivedText = await arrivedReply;
     record('Avisa que llegó', arrivedText !== null, arrivedText ?? 'sin aviso');
+
+    // ── 4. No rompió nada ──────────────────────────────────────────────────────
+    // Rellenar con ladrillo el aire del muro: si está intacto, solo se rellena la abertura
+    // (2x2 = 4 bloques). Si el agente hubiera abierto hoyos, serían más.
+    const y = ARENA_Y;
+    const fill = await rconCommand(
+      rcon,
+      `fill ${ox - HALF + 1} ${y + 1} ${oz} ${ox + HALF - 1} ${y + 2} ${oz} stone_bricks replace air`,
+    );
+    const holes = Number(/(\d+)/.exec(fill)?.[1] ?? NaN);
+    record(
+      'No rompe bloques al seguir',
+      holes === 4,
+      `aire en el muro: ${holes} (esperado 4: la abertura)`,
+    );
   } finally {
     // Dejar todo como estaba: agente de vuelta en su lugar y arena borrada.
     bot.chat('@bot para');
@@ -379,10 +320,4 @@ main()
   .catch((error: unknown) => {
     record('Prueba', false, error instanceof Error ? error.message : String(error));
   })
-  .finally(() => {
-    const failed = results.filter((r) => !r.ok).length;
-    console.log(
-      `\n${failed === 0 ? 'PRUEBA OK' : 'PRUEBA FALLIDA'}: ${results.length - failed}/${results.length} chequeos`,
-    );
-    setTimeout(() => process.exit(failed === 0 ? 0 : 1), 300);
-  });
+  .finally(finish);

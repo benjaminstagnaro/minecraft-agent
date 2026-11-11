@@ -1,5 +1,10 @@
 import { describe, expect, it } from 'vitest';
-import { extractMention, normalize, parseCommand } from '../src/bot/commands.js';
+import {
+  DEFAULT_COLLECT_COUNT,
+  extractMention,
+  normalize,
+  parseCommand,
+} from '../src/bot/commands.js';
 
 const BOT = 'Agente';
 
@@ -57,5 +62,35 @@ describe('parseCommand', () => {
 
   it('devuelve null si el mensaje no es para el bot', () => {
     expect(parseCommand('sígueme', BOT)).toBeNull();
+  });
+
+  it.each(['@bot estado', '@bot inventario', '@bot ¿qué tienes?'])('"%s" → status', (message) => {
+    expect(parseCommand(message, BOT)?.kind).toBe('status');
+  });
+});
+
+describe('parseCommand: juntar', () => {
+  it.each([
+    ['@bot junta 10 troncos', 10, 'troncos'],
+    ['@bot junta 10 troncos de roble', 10, 'troncos de roble'],
+    ['@bot recolecta diez troncos', 10, 'troncos'],
+    ['@bot tala 3 troncos por favor', 3, 'troncos'],
+    ['@bot consígueme 64 tierra', 64, 'tierra'],
+    ['@bot mina un carbón', 1, 'carbon'],
+    ['@bot junta troncos', DEFAULT_COLLECT_COUNT, 'troncos'],
+  ])('"%s" → %i × "%s"', (message, count, what) => {
+    expect(parseCommand(message, BOT)).toEqual({ kind: 'collect', count, what });
+  });
+
+  it('si la primera palabra no es un número, es parte del nombre', () => {
+    expect(parseCommand('@bot junta tierra roja', BOT)).toEqual({
+      kind: 'collect',
+      count: DEFAULT_COLLECT_COUNT,
+      what: 'tierra roja',
+    });
+  });
+
+  it('pasa cantidades fuera de rango tal cual (la herramienta las valida y explica)', () => {
+    expect(parseCommand('@bot junta 500 troncos', BOT)).toMatchObject({ count: 500 });
   });
 });
