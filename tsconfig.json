@@ -1,0 +1,25 @@
+{
+  // Config base: el editor y `npm run typecheck` revisan src, tests y scripts.
+  "compilerOptions": {
+    "target": "ES2023",
+    "lib": ["ES2023"],
+    "module": "NodeNext",
+    "moduleResolution": "NodeNext",
+    "types": ["node"],
+    "strict": true,
+    "noUncheckedIndexedAccess": true,
+    "noImplicitOverride": true,
+    "noFallthroughCasesInSwitch": true,
+    "exactOptionalPropertyTypes": false,
+    "esModuleInterop": true,
+    "skipLibCheck": true,
+    "forceConsistentCasingInFileNames": true,
+    "resolveJsonModule": true,
+    "isolatedModules": true,
+    "verbatimModuleSyntax": true,
+    "sourceMap": true,
+    "outDir": "dist",
+    "rootDir": "."
+  },
+  "include": ["src", "tests", "scripts", "*.config.ts"]
+}

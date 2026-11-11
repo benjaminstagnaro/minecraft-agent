@@ -1,0 +1,10 @@
+{
+  // Build de producción: solo compila el bot (src) a dist/.
+  "extends": "./tsconfig.json",
+  "compilerOptions": {
+    "rootDir": "src",
+    "outDir": "dist",
+    "noEmit": false
+  },
+  "include": ["src"]
+}

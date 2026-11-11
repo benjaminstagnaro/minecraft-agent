@@ -1,0 +1,48 @@
+{
+  "name": "minecraft-agent",
+  "version": "0.1.0",
+  "description": "Agente de IA que entra a Minecraft como un jugador más y obedece órdenes en lenguaje natural (Mineflayer + Claude).",
+  "type": "module",
+  "private": true,
+  "license": "MIT",
+  "author": "Benjamín Stagnaro",
+  "engines": {
+    "node": ">=22.12"
+  },
+  "scripts": {
+    "dev": "tsx src/index.ts",
+    "build": "tsc -p tsconfig.build.json",
+    "start": "node dist/index.js",
+    "typecheck": "tsc --noEmit",
+    "lint": "eslint .",
+    "format": "prettier --write .",
+    "format:check": "prettier --check .",
+    "test": "node scripts/vitest.mjs run",
+    "test:watch": "node scripts/vitest.mjs",
+    "check": "npm run typecheck && npm run lint && npm run format:check && npm run test",
+    "server:setup": "tsx scripts/server-setup.ts",
+    "server:start": "tsx scripts/server-start.ts",
+    "server:cmd": "tsx scripts/server-cmd.ts",
+    "smoke:follow": "tsx scripts/smoke-follow.ts"
+  },
+  "dependencies": {
+    "minecraft-data": "3.119.0",
+    "minecraft-protocol": "1.68.0",
+    "mineflayer": "4.39.0",
+    "mineflayer-pathfinder": "2.4.5",
+    "vec3": "0.1.10",
+    "zod": "4.6.7"
+  },
+  "devDependencies": {
+    "@eslint/js": "10.0.1",
+    "@types/node": "24.19.2",
+    "eslint": "10.14.0",
+    "eslint-config-prettier": "10.1.8",
+    "globals": "17.14.0",
+    "prettier": "3.9.10",
+    "tsx": "4.23.15",
+    "typescript": "6.0.3",
+    "typescript-eslint": "8.72.2",
+    "vitest": "5.1.0"
+  }
+}
