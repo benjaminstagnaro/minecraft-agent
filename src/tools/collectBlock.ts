@@ -4,6 +4,7 @@ import { Vec3 } from 'vec3';
 import { z } from 'zod';
 import { createWorkMovements } from '../bot/pathing.js';
 import { digBlock, gotoGoal, isAbortError, throwIfAborted, wait } from './abort.js';
+import { GoalWithinReach } from './goals.js';
 import type { Tool, ToolContext, ToolResult } from './types.js';
 
 const { goals } = pathfinderPkg;
@@ -24,6 +25,15 @@ export interface BlockInfo {
 }
 
 export type BlockLookup = (x: number, y: number, z: number) => BlockInfo | undefined;
+
+/** Claves de las posiciones candidatas en la misma columna (x, z): el "árbol" completo. */
+export function positionsInColumn(
+  x: number,
+  z: number,
+  positions: ReadonlyArray<{ x: number; z: number; toString(): string }>,
+): string[] {
+  return positions.filter((p) => p.x === x && p.z === z).map((p) => p.toString());
+}
 
 export const isLogName = (name: string): boolean =>
   name.endsWith('_log') && !name.startsWith('stripped_');
@@ -186,12 +196,7 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
       }
 
       try {
-        await gotoGoal(
-          bot,
-          new goals.GoalLookAtBlock(target.position, bot.world, { reach: 4.5 }),
-          signal,
-          30_000,
-        );
+        await gotoGoal(bot, new GoalWithinReach(target.position), signal, 30_000);
         const fresh = bot.blockAt(target.position);
         if (!fresh || !targetIds.has(fresh.type)) continue; // alguien más lo picó
         if (!bot.canDigBlock(fresh)) throw new Error('no alcanzo a picarlo desde aquí');
@@ -207,7 +212,17 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
         if (isAbortError(error)) throw error;
         failed.add(target.position.toString());
         consecutiveFailures++;
-        log.warn(`No pude con ${target.name} en ${target.position.toString()}`, error);
+        // Descartar el árbol completo (toda la columna), no solo este tronco: si no llego a
+        // uno, tampoco llegaré a los de arriba. Así los intentos se gastan en árboles distintos.
+        for (const pos of positionsInColumn(target.position.x, target.position.z, positions)) {
+          failed.add(pos);
+        }
+        const here = bot.entity.position;
+        log.warn(
+          `No pude con ${target.name} en ${target.position.toString()} ` +
+            `(yo en ${here.floored().toString()}, enSuelo=${String(bot.entity.onGround)})`,
+          error,
+        );
         if (consecutiveFailures >= MAX_CONSECUTIVE_FAILURES) {
           return {
             ok: false,

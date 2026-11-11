@@ -3,6 +3,7 @@ import { ALL_LOGS, resolveBlockGroup } from '../src/bot/names.js';
 import {
   isLogName,
   isNaturalLog,
+  positionsInColumn,
   type BlockInfo,
   type BlockLookup,
 } from '../src/tools/collectBlock.js';
@@ -43,6 +44,12 @@ describe('isNaturalLog: no talar construcciones', () => {
   it('hojas naturales demasiado lejos de la copa no cuentan', () => {
     const farLeaves = world({ '0,64,0': log, '5,64,0': naturalLeaves });
     expect(isNaturalLog(0, 64, 0, farLeaves)).toBe(false);
+  });
+
+  it('positionsInColumn agrupa los troncos de un mismo árbol (misma x, z)', () => {
+    const at = (x: number, y: number, z: number) => ({ x, z, toString: () => `${x},${y},${z}` });
+    const candidates = [at(0, 64, 0), at(0, 65, 0), at(3, 64, 0), at(0, 66, 0)];
+    expect(positionsInColumn(0, 0, candidates)).toEqual(['0,64,0', '0,65,0', '0,66,0']);
   });
 
   it('reconoce troncos y descarta los descortezados', () => {
