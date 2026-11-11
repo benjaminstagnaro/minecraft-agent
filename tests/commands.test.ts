@@ -90,6 +90,15 @@ describe('parseCommand: juntar', () => {
     });
   });
 
+  it.each([
+    ['@bot craftea 4 tablones', 4, 'tablones'],
+    ['@bot craftea un pico de madera', 1, 'pico de madera'],
+    ['@bot hazme una mesa de crafteo', 1, 'mesa de crafteo'],
+    ['@bot fabrica palos', 1, 'palos'],
+  ])('"%s" → craft %i × "%s"', (message, count, what) => {
+    expect(parseCommand(message, BOT)).toEqual({ kind: 'craft', count, what });
+  });
+
   it('pasa cantidades fuera de rango tal cual (la herramienta las valida y explica)', () => {
     expect(parseCommand('@bot junta 500 troncos', BOT)).toMatchObject({ count: 500 });
   });

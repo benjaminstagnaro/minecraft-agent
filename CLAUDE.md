@@ -132,7 +132,7 @@ minecraft-agent/
 ## Estado actual
 
 - [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour, bayas). Cerrada: merge a `main` y publicada en https://github.com/benjaminstagnaro/minecraft-agent (2026-11-11).
-- [ ] Etapa 2: Acciones (siguiente).
+- [ ] Etapa 2: Acciones (en curso, rama `etapa-2-acciones`): ✅ `estado`, ✅ `junta N <bloque>` (smoke:collect 4/4), ✅ `craftea N <ítem>` (smoke:craft 7/7). Falta: `pon <bloque>` y la prueba de Benjamín en el juego.
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
   - Java 25: los scripts usan el del launcher de Minecraft automáticamente (el `java` del PATH es Java 8).
@@ -143,4 +143,7 @@ minecraft-agent/
 - Descartado como causa: el paquete `tick_end` (mineflayer no lo envía; necesario recién en 26.3, ya arreglado en mineflayer master, PR #4137) y el flag `hasHorizontalCollision`. Ninguno cambió nada en 26.1.
 - `bot.game.hardcore` es siempre `false` en 26.1 (bug de mineflayer): la protección lee `isHardcore` del paquete de login crudo.
 - Bloques atravesables dañinos (`sweet_berry_bush`, `wither_rose`, `powder_snow`, `soul_fire`): no basta con `blocksToAvoid`, porque el bot los roza con su caja de 0,6 al doblar. Se usa además un costo por casilla vecina (`exclusionAreasStep`, `src/bot/pathing.ts`). La prueba e2e mide la vida del agente por RCON.
+- `GoalLookAtBlock` del pathfinder exige línea de visión con el mundo actual: con árboles de hojas bajas da "No path" intermitente. Usar `GoalWithinReach` (`src/tools/goals.ts`): el servidor solo exige distancia para picar.
+- Crafteo con mineflayer en 26.1: los clics salen sin esperar confirmación y chocan con las actualizaciones de `stateId` del servidor (receta a medias, ingredientes atrapados en la cuadrícula 2x2). `craftItem.ts` espera respuesta tras cada clic, sincroniza con `_syncWindow`, vacía la cuadrícula (`close_window` 0) y verifica contra el inventario real. Issue relacionado abierto: mineflayer #4161 (`set_player_inventory` mal mapeado).
+- `tsx -e` con imports `.ts` falla en silencio en este equipo: para scripts temporales, usar un archivo en `scripts/`.
 - Windows: detener un proceso `npm run ...` deja vivo al hijo `node`. Revisar procesos huérfanos (dos agentes con el mismo nombre se expulsan mutuamente; el agente ahora detecta `duplicate_login` y no reintenta).

@@ -48,14 +48,16 @@ const GROUPS: Record<string, BlockGroup> = {
   arcilla: { label: 'arcilla', blocks: ['clay'] },
 };
 
-/** Variantes en singular y con "de" opcional: "tronco" → "troncos", etc. */
+/**
+ * Variantes en singular y plural de la primera palabra:
+ * "tronco de roble" ↔ "troncos de roble", "tablon" ↔ "tablones", "picos de madera" → "pico de madera".
+ */
 function candidates(phrase: string): string[] {
-  const list = [phrase];
-  if (!phrase.endsWith('s')) list.push(`${phrase}s`);
-  // "tronco de roble" → "troncos de roble"
-  const [first, ...rest] = phrase.split(' ');
-  if (first && !first.endsWith('s') && rest.length > 0) list.push([`${first}s`, ...rest].join(' '));
-  return list;
+  const [first = '', ...rest] = phrase.split(' ');
+  const forms = new Set([first, `${first}s`, `${first}es`]);
+  if (first.endsWith('es')) forms.add(first.slice(0, -2));
+  if (first.endsWith('s')) forms.add(first.slice(0, -1));
+  return [phrase, ...[...forms].map((form) => [form, ...rest].join(' '))];
 }
 
 /**
@@ -75,4 +77,89 @@ export function resolveBlockGroup(
   const id = text.replace(/^minecraft:/, '').replace(/\s+/g, '_');
   if (knownBlock(id)) return { label: id, blocks: [id] };
   return undefined;
+}
+
+// ───────────────────────────── ítems para craftear ─────────────────────────────
+
+/** Nombre en español de cada tipo de madera (para tablones, troncos, etc.). */
+const WOOD_ES: Record<string, string> = {
+  oak: 'roble',
+  spruce: 'abeto',
+  birch: 'abedul',
+  jungle: 'jungla',
+  acacia: 'acacia',
+  cherry: 'cerezo',
+  dark_oak: 'roble oscuro',
+  pale_oak: 'roble pálido',
+  mangrove: 'manglar',
+  bamboo: 'bambú',
+  crimson: 'carmesí',
+  warped: 'distorsionado',
+};
+
+export const ALL_PLANKS = Object.keys(WOOD_ES).map((wood) => `${wood}_planks`);
+
+export interface ItemGroup {
+  label: string;
+  /** Ítems que sirven: se usa el primero que se pueda fabricar con lo que hay. */
+  items: string[];
+}
+
+const ITEM_GROUPS: Record<string, ItemGroup> = {
+  tablones: { label: 'tablones', items: ALL_PLANKS },
+  tablas: { label: 'tablones', items: ALL_PLANKS },
+  palos: { label: 'palos', items: ['stick'] },
+  palitos: { label: 'palos', items: ['stick'] },
+  'mesa de crafteo': { label: 'mesa de crafteo', items: ['crafting_table'] },
+  'mesa de trabajo': { label: 'mesa de crafteo', items: ['crafting_table'] },
+  mesa: { label: 'mesa de crafteo', items: ['crafting_table'] },
+  'pico de madera': { label: 'pico de madera', items: ['wooden_pickaxe'] },
+  'pico de piedra': { label: 'pico de piedra', items: ['stone_pickaxe'] },
+  'hacha de madera': { label: 'hacha de madera', items: ['wooden_axe'] },
+  'hacha de piedra': { label: 'hacha de piedra', items: ['stone_axe'] },
+  'pala de madera': { label: 'pala de madera', items: ['wooden_shovel'] },
+  'pala de piedra': { label: 'pala de piedra', items: ['stone_shovel'] },
+  'espada de madera': { label: 'espada de madera', items: ['wooden_sword'] },
+  'espada de piedra': { label: 'espada de piedra', items: ['stone_sword'] },
+  antorchas: { label: 'antorchas', items: ['torch'] },
+  cofre: { label: 'cofre', items: ['chest'] },
+  horno: { label: 'horno', items: ['furnace'] },
+};
+
+/** Traduce lo que escribió el jugador a ítems que se pueden fabricar. */
+export function resolveItemGroup(
+  phrase: string,
+  knownItem: (name: string) => boolean,
+): ItemGroup | undefined {
+  const text = phrase.trim().toLowerCase();
+  for (const candidate of candidates(text)) {
+    const group = ITEM_GROUPS[candidate];
+    if (group) return group;
+  }
+  const id = text.replace(/^minecraft:/, '').replace(/\s+/g, '_');
+  if (knownItem(id)) return { label: id, items: [id] };
+  return undefined;
+}
+
+const SPANISH_NAMES: Record<string, string> = {
+  stick: 'palos',
+  crafting_table: 'mesa de crafteo',
+  cobblestone: 'adoquines',
+  cobbled_deepslate: 'pizarra profunda labrada',
+  coal: 'carbón',
+  charcoal: 'carbón vegetal',
+  iron_ingot: 'lingotes de hierro',
+  dirt: 'tierra',
+  sand: 'arena',
+};
+
+/** Nombre en español para los mensajes ("oak_planks" → "tablones de roble"). */
+export function spanishName(name: string): string {
+  const known = SPANISH_NAMES[name];
+  if (known) return known;
+  const wood = /^(.+)_(planks|log)$/.exec(name);
+  if (wood?.[1] && WOOD_ES[wood[1]]) {
+    return `${wood[2] === 'planks' ? 'tablones' : 'troncos'} de ${WOOD_ES[wood[1]]}`;
+  }
+  return name.replace(/_/g, ' ');
 }

@@ -10,6 +10,7 @@ export type Command =
   | { kind: 'help' }
   | { kind: 'status' }
   | { kind: 'collect'; count: number; what: string }
+  | { kind: 'craft'; count: number; what: string }
   | { kind: 'unknown'; text: string };
 
 type SimpleKind = 'follow' | 'come' | 'stop' | 'help' | 'status';
@@ -25,9 +26,12 @@ const ALIASES: Record<SimpleKind, readonly string[]> = {
 
 /** Cantidad por defecto si el jugador no dice cuántos ("@bot junta troncos"). */
 export const DEFAULT_COLLECT_COUNT = 10;
+/** "@bot craftea un pico" o "@bot craftea pico" → 1. */
+export const DEFAULT_CRAFT_COUNT = 1;
 
 const COLLECT_VERBS =
   'junta|juntame|recolecta|recoge|consigue|consigueme|trae|traeme|mina|pica|tala|corta|collect|get';
+const CRAFT_VERBS = 'craftea|craftear|crafteame|fabrica|fabricame|haz|hazme|crea|creame|craft|make';
 
 const NUMBER_WORDS: Record<string, number> = {
   un: 1,
@@ -48,21 +52,34 @@ const NUMBER_WORDS: Record<string, number> = {
   veinte: 20,
 };
 
-const COLLECT_PATTERN = new RegExp(`^(?:${COLLECT_VERBS})\\s+(?:(\\d+|[a-z]+)\\s+)?(.+)$`);
-
-function parseCollect(normalized: string): Command | undefined {
-  const match = COLLECT_PATTERN.exec(normalized);
+/**
+ * "<verbo> [cantidad] <cosa>": "junta 10 troncos", "craftea un pico de madera",
+ * "junta troncos" (sin número → `defaultCount`).
+ */
+function parseCounted(
+  normalized: string,
+  verbs: string,
+  defaultCount: number,
+): { count: number; what: string } | undefined {
+  const match = new RegExp(`^(?:${verbs})\\s+(?:(\\d+|[a-z]+)\\s+)?(.+)$`).exec(normalized);
   if (!match) return undefined;
   const [, amount, rest] = match;
   if (!rest) return undefined;
 
-  // "junta 10 troncos" / "junta diez troncos" / "junta troncos" (sin número).
-  if (amount === undefined) return { kind: 'collect', count: DEFAULT_COLLECT_COUNT, what: rest };
-  if (/^\d+$/.test(amount)) return { kind: 'collect', count: Number(amount), what: rest };
+  if (amount === undefined) return { count: defaultCount, what: rest };
+  if (/^\d+$/.test(amount)) return { count: Number(amount), what: rest };
   const word = NUMBER_WORDS[amount];
-  if (word !== undefined) return { kind: 'collect', count: word, what: rest };
+  if (word !== undefined) return { count: word, what: rest };
   // La primera palabra no era un número: es parte del nombre ("junta tierra roja").
-  return { kind: 'collect', count: DEFAULT_COLLECT_COUNT, what: `${amount} ${rest}` };
+  return { count: defaultCount, what: `${amount} ${rest}` };
+}
+
+function parseAction(normalized: string): Command | undefined {
+  const collect = parseCounted(normalized, COLLECT_VERBS, DEFAULT_COLLECT_COUNT);
+  if (collect) return { kind: 'collect', ...collect };
+  const craft = parseCounted(normalized, CRAFT_VERBS, DEFAULT_CRAFT_COUNT);
+  if (craft) return { kind: 'craft', ...craft };
+  return undefined;
 }
 
 // Cortesías que se ignoran para no complicar el match ("sígueme por favor").
@@ -110,9 +127,9 @@ export function parseCommand(message: string, botName: string): Command | null {
 
   const kind = COMMAND_BY_PHRASE.get(normalized);
   if (kind) return { kind };
-  return parseCollect(normalized) ?? { kind: 'unknown', text };
+  return parseAction(normalized) ?? { kind: 'unknown', text };
 }
 
 export const HELP_TEXT =
   'Comandos: "@bot sígueme", "@bot ven", "@bot para", "@bot estado", ' +
-  '"@bot junta 10 troncos" (también tierra, arena, piedra...).';
+  '"@bot junta 10 troncos", "@bot craftea 4 tablones" (o palos, mesa, pico de madera...).';

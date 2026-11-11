@@ -3,11 +3,12 @@ import pathfinderPkg from 'mineflayer-pathfinder';
 import type { AppConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 import { collectBlockTool } from '../tools/collectBlock.js';
+import { craftItemTool } from '../tools/craftItem.js';
 import { getStatusTool } from '../tools/getStatus.js';
 import { ActionRunner } from '../tools/runner.js';
 import { HELP_TEXT, parseCommand, type Command } from './commands.js';
 import { MovementController } from './movement.js';
-import { resolveBlockGroup } from './names.js';
+import { resolveBlockGroup, resolveItemGroup } from './names.js';
 import { isHardcoreLogin } from './safety.js';
 
 const { pathfinder } = pathfinderPkg;
@@ -203,6 +204,24 @@ async function handleCommand(
       say(`Voy a juntar ${command.count} ${group.label}.`);
       const result = await runner.run(collectBlockTool, {
         blocks: group.blocks,
+        count: command.count,
+        label: group.label,
+      });
+      say(result.message);
+      break;
+    }
+    case 'craft': {
+      const group = resolveItemGroup(
+        command.what,
+        (name) => bot.registry.itemsByName[name] !== undefined,
+      );
+      if (!group) {
+        say(`No sé fabricar "${command.what}". Prueba con tablones, palos, mesa o pico de madera.`);
+        return;
+      }
+      movement.stop(true);
+      const result = await runner.run(craftItemTool, {
+        items: group.items,
         count: command.count,
         label: group.label,
       });
