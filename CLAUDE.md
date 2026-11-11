@@ -131,7 +131,8 @@ minecraft-agent/
 
 ## Estado actual
 
-- [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour). Pendiente: merge a `main`.
+- [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour, bayas). Cerrada: merge a `main` y publicada en https://github.com/benjaminstagnaro/minecraft-agent (2026-11-11).
+- [ ] Etapa 2: Acciones (siguiente).
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
   - Java 25: los scripts usan el del launcher de Minecraft automáticamente (el `java` del PATH es Java 8).
