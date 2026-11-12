@@ -14,6 +14,10 @@ type Block = NonNullable<ReturnType<Bot['blockAt']>>;
 const SEARCH_RADIUS = 48;
 const MAX_CONSECUTIVE_FAILURES = 4;
 const MAX_TREE_HEIGHT = 32;
+/** Máximo de troncos que consideramos parte de un mismo árbol (los robles oscuros son grandes). */
+const MAX_TREE_BLOCKS = 128;
+/** Recargo por abrirse paso por hojas: equivale a caminar ~8 bloques más. */
+const LEAF_PENALTY = 8;
 
 // ─────────────────────────── lógica pura (testeable) ───────────────────────────
 
@@ -25,6 +29,72 @@ export interface BlockInfo {
 }
 
 export type BlockLookup = (x: number, y: number, z: number) => BlockInfo | undefined;
+
+const key = (x: number, y: number, z: number): string => `${x},${y},${z}`;
+
+/** Las 26 posiciones vecinas (incluye diagonales: las ramas de la acacia van en diagonal). */
+export function neighbors26(x: number, y: number, z: number): [number, number, number][] {
+  const list: [number, number, number][] = [];
+  for (let dx = -1; dx <= 1; dx++) {
+    for (let dy = -1; dy <= 1; dy++) {
+      for (let dz = -1; dz <= 1; dz++) {
+        if (dx !== 0 || dy !== 0 || dz !== 0) list.push([x + dx, y + dy, z + dz]);
+      }
+    }
+  }
+  return list;
+}
+
+/**
+ * Bloques objetivo conectados a `seeds` (búsqueda en anchura con 26 vecinos): "lo que queda
+ * del árbol". Claves "x,y,z". Se corta en `limit` para no recorrer un bosque entero.
+ */
+export function connectedBlocks(
+  seeds: ReadonlyArray<readonly [number, number, number]>,
+  isTarget: (x: number, y: number, z: number) => boolean,
+  limit = MAX_TREE_BLOCKS,
+): Set<string> {
+  const found = new Set<string>();
+  const queue = seeds.filter(([x, y, z]) => isTarget(x, y, z));
+  for (const [x, y, z] of queue) found.add(key(x, y, z));
+  while (queue.length > 0 && found.size < limit) {
+    const [x, y, z] = queue.shift()!;
+    for (const [nx, ny, nz] of neighbors26(x, y, z)) {
+      const k = key(nx, ny, nz);
+      if (!found.has(k) && isTarget(nx, ny, nz)) {
+        found.add(k);
+        queue.push([nx, ny, nz]);
+      }
+    }
+  }
+  return found;
+}
+
+interface Positioned {
+  position: { x: number; y: number; z: number; distanceTo(other: unknown): number };
+}
+
+/**
+ * Elige el siguiente bloque: primero los del árbol que está talando (de abajo hacia arriba,
+ * como un jugador), y solo cuando lo termina, el más cercano.
+ */
+export function pickNextTarget<T extends Positioned>(
+  candidates: readonly T[],
+  here: unknown,
+  currentTree: ReadonlySet<string>,
+): T | undefined {
+  const inTree = (c: T): boolean => currentTree.has(key(c.position.x, c.position.y, c.position.z));
+  const fromTree = candidates.filter(inTree);
+  if (fromTree.length > 0) {
+    return [...fromTree].sort(
+      (a, b) =>
+        a.position.y - b.position.y || a.position.distanceTo(here) - b.position.distanceTo(here),
+    )[0];
+  }
+  return [...candidates].sort(
+    (a, b) => a.position.distanceTo(here) - b.position.distanceTo(here),
+  )[0];
+}
 
 /** Claves de las posiciones candidatas en la misma columna (x, z): el "árbol" completo. */
 export function positionsInColumn(
@@ -123,13 +193,16 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
     isNaturalLog(block.position.x, block.position.y, block.position.z, lookup);
 
   // Mientras trabaja puede romper en el camino solo hojas naturales y bloques objetivo naturales.
+  // Las hojas tienen recargo: prefiere rodear el árbol a abrirse paso por la copa.
+  const isLeaves = (block: Block): boolean =>
+    isNaturalLeaves({ name: block.name, properties: block.getProperties() });
   const previousMovements = bot.pathfinder.movements;
   bot.pathfinder.setMovements(
-    createWorkMovements(bot, (block) => {
-      const info = { name: block.name, properties: block.getProperties() };
-      if (isNaturalLeaves(info)) return true;
-      return targetIds.has(block.type) && isNatural(block);
-    }),
+    createWorkMovements(
+      bot,
+      (block) => isLeaves(block) || (targetIds.has(block.type) && isNatural(block)),
+      (block) => (isLeaves(block) ? LEAF_PENALTY : 0),
+    ),
   );
 
   const start = countDrops();
@@ -137,6 +210,13 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
   const failed = new Set<string>();
   let consecutiveFailures = 0;
   let checkedHarvest = false;
+  // Troncos que quedan del árbol que está talando: se terminan antes de pasar a otro, para no
+  // dejar árboles a medias con troncos flotando (lo reportó Benjamín probando en el juego).
+  let currentTree = new Set<string>();
+  const isTargetAt = (x: number, y: number, z: number): boolean => {
+    const block = bot.blockAt(new Vec3(x, y, z));
+    return block !== null && targetIds.has(block.type);
+  };
 
   try {
     while (gained() < args.count) {
@@ -168,8 +248,7 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
         candidates.push(block);
       }
       const here = bot.entity.position;
-      candidates.sort((a, b) => here.distanceTo(a.position) - here.distanceTo(b.position));
-      const target = candidates[0];
+      const target = pickNextTarget(candidates, here, currentTree);
 
       if (!target) {
         const built =
@@ -207,7 +286,13 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
         await pickUpDrops(ctx, fresh.position, dropIds);
 
         consecutiveFailures = 0;
-        log.info(`Llevo ${gained()}/${args.count} ${label}`);
+        // Lo que queda conectado a este tronco es "el árbol actual".
+        const { x, y, z } = fresh.position;
+        currentTree = connectedBlocks(neighbors26(x, y, z), isTargetAt);
+        log.info(
+          `Llevo ${gained()}/${args.count} ${label} (${fresh.name} en ${x},${y},${z}; ` +
+            `quedan ${currentTree.size} en este árbol)`,
+        );
       } catch (error) {
         if (isAbortError(error)) throw error;
         failed.add(target.position.toString());

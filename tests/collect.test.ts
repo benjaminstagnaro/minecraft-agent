@@ -1,8 +1,12 @@
+import { Vec3 } from 'vec3';
 import { describe, expect, it } from 'vitest';
 import { ALL_LOGS, resolveBlockGroup } from '../src/bot/names.js';
 import {
   isLogName,
+  connectedBlocks,
   isNaturalLog,
+  neighbors26,
+  pickNextTarget,
   positionsInColumn,
   type BlockInfo,
   type BlockLookup,
@@ -50,6 +54,37 @@ describe('isNaturalLog: no talar construcciones', () => {
     const at = (x: number, y: number, z: number) => ({ x, z, toString: () => `${x},${y},${z}` });
     const candidates = [at(0, 64, 0), at(0, 65, 0), at(3, 64, 0), at(0, 66, 0)];
     expect(positionsInColumn(0, 0, candidates)).toEqual(['0,64,0', '0,65,0', '0,66,0']);
+  });
+
+  it('connectedBlocks encuentra el resto del árbol (incluye ramas en diagonal) y no salta al vecino', () => {
+    // Árbol A: columna en (0, 64..67, 0) con una rama diagonal en (1, 68, 1).
+    // Árbol B: columna en (4, 64..66, 0), separado por 3 bloques de aire.
+    const logs = new Set([
+      '0,64,0',
+      '0,65,0',
+      '0,66,0',
+      '0,67,0',
+      '1,68,1',
+      '4,64,0',
+      '4,65,0',
+      '4,66,0',
+    ]);
+    const isLog = (x: number, y: number, z: number) => logs.has(`${x},${y},${z}`);
+    // Acabamos de talar (0, 64, 0): lo que queda conectado es el árbol A sin ese tronco.
+    logs.delete('0,64,0');
+    const rest = connectedBlocks(neighbors26(0, 64, 0), isLog);
+    expect([...rest].sort()).toEqual(['0,65,0', '0,66,0', '0,67,0', '1,68,1']);
+  });
+
+  it('pickNextTarget termina el árbol actual (de abajo hacia arriba) antes de ir al más cercano', () => {
+    const here = new Vec3(2, 64, 0);
+    const block = (x: number, y: number, z: number) => ({ position: new Vec3(x, y, z) });
+    const treeA = [block(0, 67, 0), block(0, 65, 0)];
+    const treeBNear = block(3, 64, 0); // más cerca que los troncos altos del árbol A
+    const current = new Set(['0,65,0', '0,67,0']);
+    expect(pickNextTarget([...treeA, treeBNear], here, current)?.position.y).toBe(65);
+    // Sin árbol actual: el más cercano.
+    expect(pickNextTarget([...treeA, treeBNear], here, new Set())).toBe(treeBNear);
   });
 
   it('reconoce troncos y descarta los descortezados', () => {

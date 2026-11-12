@@ -95,9 +95,14 @@ type PathBlock = Parameters<InstanceType<typeof Movements>['safeToBreak']>[0];
 export function createWorkMovements(
   bot: Bot,
   canBreak: (block: PathBlock) => boolean,
+  /** Recargo por atravesar (y por lo tanto romper) un bloque: ej. hojas, para preferir rodear. */
+  passPenalty?: (block: PathBlock) => number,
 ): InstanceType<typeof Movements> {
   const movements = createMovements(bot);
   movements.canDig = true;
   movements.exclusionAreasBreak.push((block) => (canBreak(block) ? 0 : FORBIDDEN));
+  // Ojo: el pathfinder NO suma el costo de exclusionAreasBreak (solo lo usa como sí/no), pero
+  // sí suma exclusionAreasStep en cada bloque que atraviesa un movimiento. Por eso el recargo va aquí.
+  if (passPenalty) movements.exclusionAreasStep.push(passPenalty);
   return movements;
 }

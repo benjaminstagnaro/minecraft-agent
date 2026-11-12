@@ -2,7 +2,7 @@
  * Prueba de humo de la etapa 2 (end-to-end, en el servidor real): "@bot junta N troncos".
  *
  * El probador arma (por RCON) un bosquecito en el cielo, sobre donde está el agente:
- *   - 3 robles NATURALES generados con /place feature (igual que en el mundo normal),
+ *   - 4 robles NATURALES en fila, pegados (igual que en un bosque), con /place feature,
  *   - 2 señuelos de "construcción": un pilar de troncos sin hojas y otro con hojas
  *     puestas a mano (persistent=true). El agente NO debe tocarlos jamás.
  *
@@ -40,7 +40,18 @@ interface Arena {
   oz: number;
   /** Bloques de los señuelos: deben seguir siendo troncos al final. */
   decoys: { x: number; y: number; z: number }[];
+  /** Columnas (x, z) de los troncos de los árboles naturales. */
+  trees: { x: number; z: number }[];
 }
+
+// Robles en fila a 3 bloques: como en un bosque real, las copas se tocan y la base del árbol
+// vecino suele quedar más cerca que los troncos altos del árbol que se está talando.
+const TREE_SPOTS = [
+  [-5, -5],
+  [-2, -5],
+  [1, -5],
+  [4, -5],
+] as const;
 
 async function buildForest(rcon: RconOptions, ox: number, oz: number): Promise<Arena> {
   const y = ARENA_Y;
@@ -57,11 +68,7 @@ async function buildForest(rcon: RconOptions, ox: number, oz: number): Promise<A
   }
 
   // Árboles naturales.
-  for (const [dx, dz] of [
-    [-6, -6],
-    [6, -6],
-    [0, 7],
-  ] as const) {
+  for (const [dx, dz] of TREE_SPOTS) {
     await rconExpect(
       rcon,
       `place feature minecraft:oak ${ox + dx} ${y + 1} ${oz + dz}`,
@@ -84,6 +91,7 @@ async function buildForest(rcon: RconOptions, ox: number, oz: number): Promise<A
   return {
     ox,
     oz,
+    trees: TREE_SPOTS.map(([dx, dz]) => ({ x: ox + dx, z: oz + dz })),
     decoys: [
       { x: a.x, y: y + 1, z: a.z },
       { x: a.x, y: y + 2, z: a.z },
@@ -118,6 +126,23 @@ async function intactDecoys(rcon: RconOptions, arena: Arena): Promise<number> {
     if (/passed|superad|correct/i.test(response)) intact++;
   }
   return intact;
+}
+
+/** Troncos que quedan en la columna de un árbol (el roble normal tiene un tronco recto). */
+async function treeLogs(rcon: RconOptions, x: number, z: number): Promise<number> {
+  let count = 0;
+  for (let y = ARENA_Y + 1; y <= ARENA_Y + 12; y++) {
+    const response = await rconCommand(rcon, `execute if block ${x} ${y} ${z} minecraft:oak_log`);
+    if (/passed|superad|correct/i.test(response)) count++;
+  }
+  return count;
+}
+
+/** Troncos de cada árbol, contando de a uno (en serie, para no saturar RCON). */
+async function countTrees(rcon: RconOptions, arena: Arena): Promise<number[]> {
+  const counts: number[] = [];
+  for (const { x, z } of arena.trees) counts.push(await treeLogs(rcon, x, z));
+  return counts;
 }
 
 /** Manda una orden y espera la respuesta final del agente. */
@@ -158,6 +183,7 @@ async function main(): Promise<void> {
     await sleep(2500);
 
     // ── 1. Juntar 10 troncos ───────────────────────────────────────────────────
+    const logsBefore = await countTrees(rcon, arena);
     const started = Date.now();
     const done = await order(bot, agentName, '@bot junta 10 troncos', /listo|junté|no /i, 180_000);
     const seconds = ((Date.now() - started) / 1000).toFixed(0);
@@ -166,6 +192,14 @@ async function main(): Promise<void> {
       'Junta 10 troncos',
       done !== null && /^listo/i.test(done) && logs >= 10,
       `respondió "${done ?? 'nada'}" en ${seconds} s; tiene ${logs} troncos en el inventario`,
+    );
+    // Un jugador termina un árbol antes de pasar a otro: a lo más queda a medias el último.
+    const logsAfter = await countTrees(rcon, arena);
+    const halfDone = logsAfter.filter((left, i) => left > 0 && left < (logsBefore[i] ?? 0)).length;
+    record(
+      'Termina cada árbol antes de pasar a otro',
+      halfDone <= 1,
+      `troncos por árbol antes [${logsBefore.join(', ')}] → después [${logsAfter.join(', ')}]; a medias: ${halfDone}`,
     );
 
     // ── 2. Cancelar a mitad ────────────────────────────────────────────────────
