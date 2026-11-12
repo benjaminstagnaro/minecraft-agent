@@ -11,7 +11,14 @@ export type Command =
   | { kind: 'status' }
   | { kind: 'collect'; count: number; what: string }
   | { kind: 'craft'; count: number; what: string }
+  | { kind: 'place'; what: string; at: [Coordinate, Coordinate, Coordinate] }
   | { kind: 'unknown'; text: string };
+
+/** Una coordenada: absoluta ("12") o relativa al jugador ("~", "~2", "~-1"), como en Minecraft. */
+export interface Coordinate {
+  relative: boolean;
+  value: number;
+}
 
 type SimpleKind = 'follow' | 'come' | 'stop' | 'help' | 'status';
 
@@ -74,7 +81,49 @@ function parseCounted(
   return { count: defaultCount, what: `${amount} ${rest}` };
 }
 
+const PLACE_VERBS = 'pon|ponme|coloca|colocame|place|put';
+const COORDINATE = String.raw`(~-?\d*|-?\d+)`;
+const PLACE_PATTERN = new RegExp(
+  String.raw`^(?:${PLACE_VERBS})\s+(?:(?:un|una|el|la)\s+)?(?:bloque\s+de\s+)?(.+?)\s+en\s+` +
+    String.raw`${COORDINATE}\s+${COORDINATE}\s+${COORDINATE}$`,
+);
+
+export function parseCoordinate(token: string): Coordinate {
+  if (token.startsWith('~')) {
+    return { relative: true, value: token.length > 1 ? Number(token.slice(1)) : 0 };
+  }
+  return { relative: false, value: Number(token) };
+}
+
+/** Resuelve coordenadas relativas ("~2") respecto de la posición (de bloque) del jugador. */
+export function resolveCoordinates(
+  at: readonly [Coordinate, Coordinate, Coordinate],
+  origin: { x: number; y: number; z: number } | undefined,
+): { x: number; y: number; z: number } | undefined {
+  if (at.some((c) => c.relative) && !origin) return undefined;
+  const base = [origin?.x ?? 0, origin?.y ?? 0, origin?.z ?? 0];
+  const [x = 0, y = 0, z = 0] = at.map((c, i) =>
+    c.relative ? Math.floor(base[i] ?? 0) + c.value : c.value,
+  );
+  return { x, y, z };
+}
+
+/** "pon tierra en 10 64 -5", "pon un bloque de tierra en ~2 ~ ~". */
+function parsePlace(normalized: string): Command | undefined {
+  const match = PLACE_PATTERN.exec(normalized);
+  if (!match) return undefined;
+  const [, what, cx, cy, cz] = match;
+  if (!what || cx === undefined || cy === undefined || cz === undefined) return undefined;
+  return {
+    kind: 'place',
+    what,
+    at: [parseCoordinate(cx), parseCoordinate(cy), parseCoordinate(cz)],
+  };
+}
+
 function parseAction(normalized: string): Command | undefined {
+  const place = parsePlace(normalized);
+  if (place) return place;
   const collect = parseCounted(normalized, COLLECT_VERBS, DEFAULT_COLLECT_COUNT);
   if (collect) return { kind: 'collect', ...collect };
   const craft = parseCounted(normalized, CRAFT_VERBS, DEFAULT_CRAFT_COUNT);
@@ -132,4 +181,4 @@ export function parseCommand(message: string, botName: string): Command | null {
 
 export const HELP_TEXT =
   'Comandos: "@bot sígueme", "@bot ven", "@bot para", "@bot estado", ' +
-  '"@bot junta 10 troncos", "@bot craftea 4 tablones" (o palos, mesa, pico de madera...).';
+  '"@bot junta 10 troncos", "@bot craftea 4 tablones", "@bot pon tierra en x y z" (o ~ ~ ~).';

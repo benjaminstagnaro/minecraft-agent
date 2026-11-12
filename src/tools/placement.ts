@@ -58,22 +58,60 @@ export function findFreeSpotNear(bot: Bot): { position: Vec3; ground: Block } | 
 }
 
 /**
- * Pone el ítem `itemName` del inventario encima de `ground` y verifica que quedó puesto.
+ * Dónde buscar apoyo para un bloque nuevo, en orden de preferencia: el suelo, los costados y
+ * el techo. Cada entrada es el desplazamiento desde la celda objetivo hasta el bloque de apoyo.
  */
-export async function placeOnTop(
+const SUPPORT_OFFSETS: ReadonlyArray<readonly [number, number, number]> = [
+  [0, -1, 0],
+  [1, 0, 0],
+  [-1, 0, 0],
+  [0, 0, 1],
+  [0, 0, -1],
+  [0, 1, 0],
+];
+
+/**
+ * En Minecraft un bloque se pone "contra" la cara de otro bloque sólido. Devuelve el
+ * desplazamiento desde `target` hasta un bloque de apoyo, o undefined si está flotando.
+ */
+export function findSupportOffset(
+  target: { x: number; y: number; z: number },
+  isSolidAt: (x: number, y: number, z: number) => boolean,
+): readonly [number, number, number] | undefined {
+  return SUPPORT_OFFSETS.find(([dx, dy, dz]) =>
+    isSolidAt(target.x + dx, target.y + dy, target.z + dz),
+  );
+}
+
+/**
+ * Pone el ítem `itemName` contra la cara `face` del bloque `reference` y verifica que quedó
+ * puesto en `reference + face`.
+ */
+export async function placeAgainst(
   bot: Bot,
   itemName: string,
-  ground: Block,
+  reference: Block,
+  face: Vec3,
   signal: AbortSignal,
 ): Promise<Block> {
   const item = bot.inventory.items().find((i) => i.name === itemName);
   if (!item) throw new Error(`no tengo ${itemName} para poner`);
   await bot.equip(item, 'hand');
-  await abortable(bot.placeBlock(ground, new Vec3(0, 1, 0)), signal, {
+  await abortable(bot.placeBlock(reference, face), signal, {
     timeoutMs: 5_000,
     what: `poner ${itemName}`,
   });
-  const placed = bot.blockAt(ground.position.offset(0, 1, 0));
+  const placed = bot.blockAt(reference.position.plus(face));
   if (placed?.name !== itemName) throw new Error(`no quedó puesto ${itemName}`);
   return placed;
+}
+
+/** Pone el ítem encima de `ground` (por ejemplo, la mesa de crafteo). */
+export function placeOnTop(
+  bot: Bot,
+  itemName: string,
+  ground: Block,
+  signal: AbortSignal,
+): Promise<Block> {
+  return placeAgainst(bot, itemName, ground, new Vec3(0, 1, 0), signal);
 }

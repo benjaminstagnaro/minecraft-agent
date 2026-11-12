@@ -122,6 +122,8 @@ const ITEM_GROUPS: Record<string, ItemGroup> = {
   'espada de madera': { label: 'espada de madera', items: ['wooden_sword'] },
   'espada de piedra': { label: 'espada de piedra', items: ['stone_sword'] },
   antorchas: { label: 'antorchas', items: ['torch'] },
+  adoquines: { label: 'adoquines', items: ['cobblestone'] },
+  vidrio: { label: 'vidrio', items: ['glass'] },
   cofre: { label: 'cofre', items: ['chest'] },
   horno: { label: 'horno', items: ['furnace'] },
 };

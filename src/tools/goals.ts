@@ -60,3 +60,23 @@ export class GoalWithinReach extends goals.Goal {
     return true;
   }
 }
+
+/**
+ * Objetivo para poner un bloque en `target`: tenerlo al alcance SIN estar parado en esa celda
+ * (ni con los pies ni con la cabeza), porque el servidor no deja poner un bloque donde hay
+ * alguien. Mismo motivo que GoalWithinReach para no usar GoalPlaceBlock del pathfinder: exige
+ * línea de visión.
+ */
+export class GoalPlaceNear extends GoalWithinReach {
+  constructor(private readonly target: Point) {
+    super(target);
+  }
+
+  override isEnd(node: Point): boolean {
+    const occupies =
+      node.x === this.target.x &&
+      node.z === this.target.z &&
+      (node.y === this.target.y || node.y + 1 === this.target.y);
+    return !occupies && super.isEnd(node);
+  }
+}

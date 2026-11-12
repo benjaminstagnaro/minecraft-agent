@@ -10,8 +10,8 @@ Inspirado en [Voyager](https://voyager.minedojo.org/) (NVIDIA), pero práctico y
 @bot construye una casa estilo Miami    (etapa 4)
 ```
 
-> **Estado:** etapa 2 de 7 en curso. El bot te sigue, junta recursos y craftea con comandos fijos.
-> Falta "poner bloques". La IA (Claude con _tool use_) llega en la etapa 3.
+> **Estado:** etapa 2 de 7: el bot te sigue, junta recursos, craftea y pone bloques con comandos
+> fijos (falta la prueba final en el juego). La IA (Claude con _tool use_) llega en la etapa 3.
 
 ## Cómo funciona
 
@@ -20,7 +20,7 @@ Chat de Minecraft ──► Bot (Mineflayer) ──► Comandos fijos ──┬�
                                                              │   (pathfinder + vigilante anti-atascos)
                                                              └─► Ejecutor de acciones ──► Herramientas
                                                                  (una a la vez, cancelable,   (junta, craftea,
-                                                                  con tiempo máximo)           estado...)
+                                                                  con tiempo máximo)           pon, estado)
 ```
 
 - **Mineflayer** conecta el bot al servidor como si fuera un cliente real.
@@ -63,15 +63,16 @@ npm run dev                                # terminal 2: el agente
 
 Después abre Minecraft **26.1.2** → Multijugador → Conexión directa → `localhost` y escribe en el chat:
 
-| Comando                 | Qué hace                                                                                                                                                                         |
-| ----------------------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `@bot sígueme`          | Te sigue a ~2 bloques, rodeando obstáculos                                                                                                                                       |
-| `@bot ven`              | Va una vez hasta donde estás y avisa al llegar                                                                                                                                   |
-| `@bot para`             | Se detiene donde está                                                                                                                                                            |
-| `@bot ayuda`            | Lista los comandos                                                                                                                                                               |
-| `@bot estado`           | Vida, comida, posición e inventario                                                                                                                                              |
-| `@bot junta 10 troncos` | Tala árboles **naturales** (nunca troncos de tus construcciones) y recoge lo que cae. También: tierra, arena, grava, piedra, carbón o un ID (`oak_log`)                          |
-| `@bot craftea 4 palos`  | Craftea con lo que tiene. Si hace falta, usa o pone una mesa de crafteo (y la fabrica). Si le falta algo, dice qué. También: tablones, mesa, pico de madera, antorchas, cofre... |
+| Comando                    | Qué hace                                                                                                                                                                                         |
+| -------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `@bot sígueme`             | Te sigue a ~2 bloques, rodeando obstáculos                                                                                                                                                       |
+| `@bot ven`                 | Va una vez hasta donde estás y avisa al llegar                                                                                                                                                   |
+| `@bot para`                | Se detiene donde está                                                                                                                                                                            |
+| `@bot ayuda`               | Lista los comandos                                                                                                                                                                               |
+| `@bot estado`              | Vida, comida, posición e inventario                                                                                                                                                              |
+| `@bot junta 10 troncos`    | Tala árboles **naturales** (nunca troncos de tus construcciones) y recoge lo que cae. También: tierra, arena, grava, piedra, carbón o un ID (`oak_log`)                                          |
+| `@bot craftea 4 palos`     | Craftea con lo que tiene. Si hace falta, usa o pone una mesa de crafteo (y la fabrica). Si le falta algo, dice qué. También: tablones, mesa, pico de madera, antorchas, cofre...                 |
+| `@bot pon tierra en x y z` | Pone un bloque de su inventario. Acepta coordenadas relativas a ti, como en los comandos: `@bot pon adoquines en ~2 ~ ~`. Explica si no puede (ocupado, sin apoyo, no lo tiene, hay alguien ahí) |
 
 También acepta variantes como `@bot seguime`, `@bot recolecta diez troncos`, `@bot hazme una mesa`
 o `@bot detente por favor`. **Una orden nueva reemplaza a la anterior** y `@bot para` detiene todo.
@@ -90,6 +91,7 @@ o `@bot detente por favor`. **Una orden nueva reemplaza a la anterior** y `@bot 
 | `npm run smoke:follow`            | **Prueba end-to-end** de seguimiento (ver abajo)                   |
 | `npm run smoke:collect`           | **Prueba end-to-end** de "junta troncos"                           |
 | `npm run smoke:craft`             | **Prueba end-to-end** de crafteo                                   |
+| `npm run smoke:place`             | **Prueba end-to-end** de "pon <bloque>"                            |
 
 ### Pruebas end-to-end
 
@@ -109,14 +111,20 @@ arena en el cielo con un muro de una sola abertura, un escalón y una franja de 
 
 Resultado: **8/8**.
 
-**`smoke:collect`** planta 3 robles naturales y 2 "señuelos" de construcción (troncos sin hojas y
-con hojas puestas a mano). Verifica que `junta 10 troncos` los consiga, que `para` lo detenga a
-mitad de la tarea, que explique cuando no hay suficientes y que **los señuelos queden intactos**.
-Resultado: **4/4** (5 corridas seguidas, 15 árboles con formas distintas).
+**`smoke:collect`** planta 4 robles naturales pegados (como en un bosque) y 2 "señuelos" de
+construcción (troncos sin hojas y con hojas puestas a mano). Verifica que `junta 10 troncos` los
+consiga, que **termine cada árbol antes de pasar a otro** (a lo más queda a medias el último),
+que `para` lo detenga a mitad de la tarea, que explique cuando no hay suficientes y que **los
+señuelos queden intactos**. Resultado: **5/5**.
 
 **`smoke:craft`** le da materiales y le pide: tablones, palos, un pico sin tablones suficientes
 (debe decir qué falta), un pico fabricando la mesa sin gastarse lo del pico, un cofre con la mesa
 existente y un pico de piedra sin piedra. Resultado: **7/7** (6 corridas seguidas).
+
+**`smoke:place`** le da tierra y adoquines y verifica que ponga un bloque en el suelo y otro
+encima, que use coordenadas relativas (`~2 ~ ~`), que camine hasta un lugar lejano, que se corra
+si está parado justo donde va el bloque, y que explique los casos imposibles: flotando sin apoyo,
+lugar ocupado, no tiene el bloque, o hay un jugador ahí. Resultado: **9/9**.
 
 ## Decisiones técnicas (y bugs encontrados en el camino)
 
@@ -173,6 +181,9 @@ src/
     ├── runner.ts       ejecutor: una acción a la vez, validación, tiempo máximo, cancelación
     ├── collectBlock.ts "junta N <bloque>"
     ├── craftItem.ts    "craftea N <ítem>"
+    ├── placeBlock.ts   "pon <bloque> en x y z"
+    ├── placement.ts    dónde y cómo poner un bloque (apoyo, no encima de nadie)
+    ├── goals.ts        objetivos del pathfinder "al alcance de la mano" (sin exigir línea de visión)
     ├── getStatus.ts    "estado"
     └── registry.ts     lista de herramientas
 scripts/                servidor de pruebas (setup, start, RCON) y pruebas end-to-end
@@ -182,7 +193,7 @@ tests/                  tests unitarios
 ## Hoja de ruta
 
 1. ✅ **Base**: el bot entra, saluda y te sigue sin quedarse pegado
-2. 🔨 **Acciones** (en curso): ✅ juntar, ✅ craftear, ⏳ poner bloques (sin IA)
+2. 🔨 **Acciones**: ✅ juntar, ✅ craftear, ✅ poner bloques (sin IA). Falta la prueba final en el juego
 3. **Cerebro**: Claude con _tool use_, órdenes en lenguaje natural
 4. **Construcción en creativo**: Claude diseña planos y un ejecutor los construye
 5. **Survival**: calcula materiales, los junta y construye

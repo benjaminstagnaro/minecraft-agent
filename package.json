@@ -25,7 +25,8 @@
     "server:cmd": "tsx scripts/server-cmd.ts",
     "smoke:follow": "tsx scripts/smoke-follow.ts",
     "smoke:collect": "tsx scripts/smoke-collect.ts",
-    "smoke:craft": "tsx scripts/smoke-craft.ts"
+    "smoke:craft": "tsx scripts/smoke-craft.ts",
+    "smoke:place": "tsx scripts/smoke-place.ts"
   },
   "dependencies": {
     "minecraft-data": "3.119.0",

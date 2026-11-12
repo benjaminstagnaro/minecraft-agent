@@ -4,9 +4,10 @@ import type { AppConfig } from '../config.js';
 import { createLogger } from '../logger.js';
 import { collectBlockTool } from '../tools/collectBlock.js';
 import { craftItemTool } from '../tools/craftItem.js';
+import { placeBlockTool } from '../tools/placeBlock.js';
 import { getStatusTool } from '../tools/getStatus.js';
 import { ActionRunner } from '../tools/runner.js';
-import { HELP_TEXT, parseCommand, type Command } from './commands.js';
+import { HELP_TEXT, parseCommand, resolveCoordinates, type Command } from './commands.js';
 import { MovementController } from './movement.js';
 import { resolveBlockGroup, resolveItemGroup } from './names.js';
 import { isHardcoreLogin } from './safety.js';
@@ -225,6 +226,35 @@ async function handleCommand(
         count: command.count,
         label: group.label,
       });
+      say(result.message);
+      break;
+    }
+    case 'place': {
+      // "tablones", "antorcha", "adoquines" (ítems) o "tierra", "arena", "troncos" (bloques).
+      const items = resolveItemGroup(
+        command.what,
+        (n) => bot.registry.itemsByName[n] !== undefined,
+      );
+      const blocks = resolveBlockGroup(
+        command.what,
+        (n) => bot.registry.blocksByName[n] !== undefined,
+      );
+      const names = items?.items ?? blocks?.blocks;
+      const label = items?.label ?? blocks?.label ?? command.what;
+      if (!names) {
+        say(
+          `No sé qué bloque es "${command.what}". Prueba con tierra, adoquines, tablones o troncos.`,
+        );
+        return;
+      }
+      // "~" es relativo a la posición del jugador que lo pidió, como en los comandos de Minecraft.
+      const target = resolveCoordinates(command.at, bot.players[username]?.entity?.position);
+      if (!target) {
+        say('No te veo, así que no puedo usar "~". Usa coordenadas exactas (las ves con F3).');
+        return;
+      }
+      movement.stop(true);
+      const result = await runner.run(placeBlockTool, { blocks: names, ...target, label });
       say(result.message);
       break;
     }

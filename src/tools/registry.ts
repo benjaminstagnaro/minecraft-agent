@@ -1,5 +1,6 @@
 import { collectBlockTool } from './collectBlock.js';
 import { craftItemTool } from './craftItem.js';
+import { placeBlockTool } from './placeBlock.js';
 import { getStatusTool } from './getStatus.js';
 import type { Tool } from './types.js';
 
@@ -11,4 +12,5 @@ export const TOOLS = [
   getStatusTool,
   collectBlockTool,
   craftItemTool,
+  placeBlockTool,
 ] as const satisfies readonly Tool[];
