@@ -1,5 +1,5 @@
 import { describe, expect, it } from 'vitest';
-import { GoalWithinReach, withinReach } from '../src/tools/goals.js';
+import { GoalDigFrom, GoalWithinReach, withinReach } from '../src/tools/goals.js';
 
 const feet = { x: 0, y: 64, z: 0 };
 
@@ -34,5 +34,18 @@ describe('GoalWithinReach', () => {
     const far = goal.heuristic({ x: 1, y: 64, z: -10 });
     expect(near).toBeGreaterThan(0);
     expect(far).toBeGreaterThan(near);
+  });
+});
+
+describe('GoalDigFrom (picar siempre desde un costado)', () => {
+  const goal = new GoalDigFrom({ x: 0, y: 70, z: 0 });
+
+  it('no sirve pararse encima del bloque (misma columna, más arriba)', () => {
+    expect(goal.isEnd({ x: 0, y: 71, z: 0 })).toBe(false);
+  });
+
+  it('sí sirve estar al lado o abajo en otra columna', () => {
+    expect(goal.isEnd({ x: 1, y: 70, z: 0 })).toBe(true);
+    expect(goal.isEnd({ x: 1, y: 67, z: 1 })).toBe(true);
   });
 });

@@ -71,6 +71,10 @@ describe('createMovements', () => {
     expect(movements.blocksToAvoid.has(registry.blocksByName.lava!.id)).toBe(true);
   });
 
+  it('nunca se tira desde más de 3 bloques (más alto quita vida)', () => {
+    expect(movements.maxDropDown).toBe(3);
+  });
+
   it('no rompe bloques, pero corre y hace parkour', () => {
     expect(movements.canDig).toBe(false);
     expect(movements.allowSprinting).toBe(true);

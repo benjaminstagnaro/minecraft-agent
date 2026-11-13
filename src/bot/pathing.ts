@@ -38,6 +38,9 @@ export function harmfulBlockIds(registry: Registry): number[] {
  */
 export const BRUSH_PENALTY = 5;
 
+/** Mayor caída sin daño: en Minecraft el daño empieza al caer más de 3 bloques. */
+export const SAFE_DROP = 3;
+
 const NEIGHBORS_8 = [
   [1, 0],
   [-1, 0],
@@ -73,6 +76,8 @@ export function createMovements(bot: Bot): InstanceType<typeof Movements> {
   movements.canDig = false;
   movements.allowSprinting = true;
   movements.allowParkour = true;
+  // Caer más de 3 bloques quita vida. El pathfinder por defecto se tira hasta 4.
+  movements.maxDropDown = SAFE_DROP;
 
   const harmful = new Set(harmfulBlockIds(bot.registry));
   for (const id of harmful) movements.blocksToAvoid.add(id);

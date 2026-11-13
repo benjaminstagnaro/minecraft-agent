@@ -80,3 +80,19 @@ export class GoalPlaceNear extends GoalWithinReach {
     return !occupies && super.isEnd(node);
   }
 }
+
+/**
+ * Objetivo para PICAR un bloque: tenerlo al alcance sin estar parado encima de él (en su
+ * misma columna, más arriba). Si se para encima y lo pica, se cae: así se lastimó el bot al
+ * talar la punta de un abeto (cayó ~5 bloques). Siempre se pica desde un costado.
+ */
+export class GoalDigFrom extends GoalWithinReach {
+  constructor(private readonly target: Point) {
+    super(target);
+  }
+
+  override isEnd(node: Point): boolean {
+    const above = node.x === this.target.x && node.z === this.target.z && node.y > this.target.y;
+    return !above && super.isEnd(node);
+  }
+}

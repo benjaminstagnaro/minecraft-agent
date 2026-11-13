@@ -2,12 +2,15 @@ import { Vec3 } from 'vec3';
 import { describe, expect, it } from 'vitest';
 import { ALL_LOGS, resolveBlockGroup } from '../src/bot/names.js';
 import {
+  cellsUnderFeet,
   isLogName,
   connectedBlocks,
+  digHazard,
   isNaturalLog,
   neighbors26,
   pickNextTarget,
   positionsInColumn,
+  scaffoldToClear,
   type BlockInfo,
   type BlockLookup,
 } from '../src/tools/collectBlock.js';
@@ -121,5 +124,97 @@ describe('resolveBlockGroup: español → bloques', () => {
 
   it('devuelve undefined si no sabe qué es', () => {
     expect(resolveBlockGroup('unicornios', known)).toBeUndefined();
+  });
+});
+
+describe('digHazard (no lastimarse al picar)', () => {
+  const target = { x: 0, y: 70, z: 0 };
+  const names = (map: Record<string, string>) => (x: number, y: number, z: number) =>
+    map[`${x},${y},${z}`];
+  const solidBelow = (groundY: number) => (x: number, y: number, z: number) =>
+    x === 0 && z === 0 && y <= groundY;
+
+  it('parado encima de la punta de un árbol alto: se caería → peligroso', () => {
+    const hazard = digHazard(target, { x: 0.5, y: 71, z: 0.5 }, names({}), solidBelow(64));
+    expect(hazard?.kind).toBe('fall');
+    expect(hazard?.message).toMatch(/me caería 6 bloques/);
+  });
+
+  it('parado encima pero con suelo cerca (caída de 2): seguro', () => {
+    expect(digHazard(target, { x: 0.5, y: 71, z: 0.5 }, names({}), solidBelow(68))).toBeUndefined();
+  });
+
+  it('picando desde un costado: seguro aunque haya un precipicio', () => {
+    expect(digHazard(target, { x: 1.5, y: 70, z: 0.5 }, names({}), solidBelow(0))).toBeUndefined();
+  });
+
+  it('con lava al lado: peligroso', () => {
+    const hazard = digHazard(
+      target,
+      { x: 1.5, y: 70, z: 0.5 },
+      names({ '0,70,1': 'lava' }),
+      solidBelow(64),
+    );
+    expect(hazard?.kind).toBe('lava');
+  });
+});
+
+describe('cellsUnderFeet (qué bloques lo sostienen)', () => {
+  it('centrado: solo la celda de abajo', () => {
+    expect(cellsUnderFeet({ x: 10.5, y: 65, z: 3.5 })).toEqual([{ x: 10, y: 64, z: 3 }]);
+  });
+
+  it('en el borde: la caja de 0,6 toca la celda vecina', () => {
+    expect(cellsUnderFeet({ x: 10.9, y: 65, z: 3.5 })).toEqual([
+      { x: 10, y: 64, z: 3 },
+      { x: 11, y: 64, z: 3 },
+    ]);
+  });
+
+  it('coordenadas negativas', () => {
+    expect(cellsUnderFeet({ x: -47.5, y: 207, z: 145.5 })).toEqual([{ x: -48, y: 206, z: 145 }]);
+  });
+});
+
+describe('scaffoldToClear (bajar de su propio pilar)', () => {
+  // Pilar propio de tierra en (0, 201..206, 0), suelo en y = 200. El bot está arriba (pies en 207).
+  const own = new Set(['0,201,0', '0,202,0', '0,203,0', '0,204,0', '0,205,0', '0,206,0']);
+  const leaves = new Set<string>();
+  const solid = new Set<string>();
+  const isOwn = (x: number, y: number, z: number) => own.has(`${x},${y},${z}`);
+  const isLeaves = (x: number, y: number, z: number) => leaves.has(`${x},${y},${z}`);
+  const isSolid = (x: number, y: number, z: number) =>
+    y <= 200 || isOwn(x, y, z) || isLeaves(x, y, z) || solid.has(`${x},${y},${z}`);
+  const top = { x: 0.5, y: 207, z: 0.5 };
+
+  it('pica el bloque de abajo: cae 1 bloque', () => {
+    expect(scaffoldToClear(top, isOwn, isLeaves, isSolid)).toEqual([{ x: 0, y: 206, z: 0 }]);
+  });
+
+  it('en el suelo no hace nada (no está sobre un bloque propio)', () => {
+    expect(scaffoldToClear({ x: 0.5, y: 201, z: 0.5 }, isOwn, isLeaves, isSolid)).toBeUndefined();
+    expect(scaffoldToClear({ x: 5.5, y: 201, z: 5.5 }, isOwn, isLeaves, isSolid)).toBeUndefined();
+  });
+
+  it('si también lo sostiene una hoja natural, pica las dos', () => {
+    leaves.add('1,206,0');
+    expect(scaffoldToClear({ x: 0.9, y: 207, z: 0.5 }, isOwn, isLeaves, isSolid)).toEqual([
+      { x: 0, y: 206, z: 0 },
+      { x: 1, y: 206, z: 0 },
+    ]);
+    leaves.clear();
+  });
+
+  it('no toca bloques ajenos (ej: si lo sostiene también un tronco o una pared)', () => {
+    solid.add('1,206,0');
+    expect(scaffoldToClear({ x: 0.9, y: 207, z: 0.5 }, isOwn, isLeaves, isSolid)).toBeUndefined();
+    solid.clear();
+  });
+
+  it('nunca si la caída sería de más de 3 bloques', () => {
+    // Un solo bloque propio flotando a 6 del suelo (el resto del pilar ya no existe).
+    const floating = (x: number, y: number, z: number) => x === 0 && y === 206 && z === 0;
+    const solidFloating = (x: number, y: number, z: number) => y <= 200 || floating(x, y, z);
+    expect(scaffoldToClear(top, floating, isLeaves, solidFloating)).toBeUndefined();
   });
 });

@@ -119,3 +119,42 @@ export async function connectTester(config: AppConfig): Promise<Bot> {
   }
   return bot;
 }
+
+// ─────────────────────────────── vida del agente ───────────────────────────────
+
+/** Vigila la vida del agente (por RCON) y guarda la mínima. */
+export class HealthWatch {
+  min = Infinity;
+  start: number | undefined;
+  private timer: NodeJS.Timeout | undefined;
+  private busy = false;
+
+  constructor(
+    private readonly rcon: RconOptions,
+    private readonly agentName: string,
+  ) {}
+
+  async read(): Promise<number | undefined> {
+    const response = await rconCommand(this.rcon, `data get entity ${this.agentName} Health`);
+    const match = /([\d.]+)f?\s*$/.exec(response.trim());
+    return match ? Number(match[1]) : undefined;
+  }
+
+  async begin(): Promise<void> {
+    this.start = await this.read();
+    this.timer = setInterval(() => {
+      if (this.busy) return;
+      this.busy = true;
+      this.read()
+        .then((health) => {
+          if (health !== undefined) this.min = Math.min(this.min, health);
+        })
+        .catch(() => undefined)
+        .finally(() => (this.busy = false));
+    }, 400);
+  }
+
+  end(): void {
+    clearInterval(this.timer);
+  }
+}

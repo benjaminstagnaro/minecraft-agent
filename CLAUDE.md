@@ -134,6 +134,14 @@ minecraft-agent/
 - [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour, bayas). Cerrada: merge a `main` y publicada en https://github.com/benjaminstagnaro/minecraft-agent (2026-11-11).
 - [ ] Etapa 2: Acciones (en curso, rama `etapa-2-acciones`): ✅ `estado`, ✅ `junta N <bloque>` (smoke:collect 4/4), ✅ `craftea N <ítem>` (smoke:craft 7/7). ✅ `pon <bloque> en x y z` con coordenadas relativas `~` (smoke:place 9/9). Falta: la prueba de Benjamín en el juego (junta con la lógica nueva de árboles, craftea y pon) y después merge a `main`.
   - "junta" termina cada árbol (de abajo hacia arriba) antes de pasar a otro y prefiere no romper hojas (reportado por Benjamín en el juego; smoke:collect con 4 robles pegados: 3/3, a lo más 1 árbol a medias).
+  - Arreglos tras la 2ª prueba de Benjamín en el juego (2026-11-12), con commit y pruebas e2e OK (collect 10/10, craft 8/8, follow 8/8, place 9/9):
+    - Caída al talar un abeto alto: el bot tenía tierra (sobrante de smoke:place), armó un pilar, se paró sobre el último tronco y lo picó (cayó ~6, 3 de vida). Ahora: `GoalDigFrom` (nunca parado encima de lo que pica), `digHazard`, `maxDropDown=3`, y baja picando su propio andamio al terminar cada árbol (no queda atrapado arriba ni deja pilares).
+    - Lentitud (15 s por tronco): picaba en el aire (×5 más lento). Ahora espera a pisar suelo (`settle`).
+    - Troncos tirados sin recoger (lo vio Benjamín): se para sobre la celda del ítem, no se rinde con los demás, y rompe la hoja de abajo si un ítem quedó sobre la copa.
+    - Crafteo: mensaje "me faltan 1 tablones de roble (tengo 2 de 3)" + sugerencia "dime craftea 4 tablones de roble".
+  - **AL RETOMAR:** (1) prueba de Benjamín en el juego: talar un abeto alto (dale tierra al bot con `/give Agente dirt 8`), ver que recoja todo, y craftear sin tablones suficientes; (2) si está OK: merge `etapa-2-acciones` → `main` y push; (3) etapa 3.
+  - Iterar rápido la fase del árbol alto: `npm run smoke:collect -- --solo-alto`. Logs de depuración: iniciar el agente con `LOG_LEVEL=debug`.
+  - Limitación conocida: si se cancela con "para" estando sobre su andamio, queda arriba (la orden siguiente con "junta" lo hace bajar; "ven"/"sígueme" no pueden romper bloques).
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
   - Java 25: los scripts usan el del launcher de Minecraft automáticamente (el `java` del PATH es Java 8).
@@ -149,4 +157,7 @@ minecraft-agent/
 - Al editar archivos con scripts de Node, usar `split/join` y no `String.replace` con texto que tenga `$`: en el reemplazo, `` $` `` inserta "todo lo anterior" (rompió `commands.ts` una vez).
 - `tsx -e` con imports `.ts` falla en silencio en este equipo: para scripts temporales, usar un archivo en `scripts/`.
 - Para buscar procesos del agente, filtrar por `src[/\]index.ts` en la línea de comando (NO por `minecraft-agent`: `node --import tsx src/index.ts` no incluye la carpeta y el filtro no lo ve).
+- Picar en el aire es 5 veces más lento (regla de Minecraft; `bot.digTime` lo refleja). `pathfinder.stop()` NO frena en seco: termina el movimiento en curso (ej: saltar y poner un bloque del pilar), que se cruza con lo siguiente. Antes de picar: esperar `!isMoving() && !isBuilding() && onGround`.
+- `GoalNear` del pathfinder trabaja con celdas enteras: "a 1 bloque" puede dejar al bot a 1,6 del ítem, fuera del radio de recogida. Para recoger, pararse sobre la celda del ítem (rango 0).
+- El pathfinder arma pilares con tierra/adoquín si los tiene (`movements.scafoldingBlocks`, así, con una "f"). No avisa cuando pone un bloque: `collectBlock.ts` lo detecta con `blockUpdate` cerca del bot.
 - Windows: detener un proceso `npm run ...` deja vivo al hijo `node`. Revisar procesos huérfanos (dos agentes con el mismo nombre se expulsan mutuamente; el agente ahora detecta `duplicate_login` y no reintenta).

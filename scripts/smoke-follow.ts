@@ -33,6 +33,7 @@ import { rconCommand, readRconOptions, type RconOptions } from './lib/rcon.js';
 import {
   connectTester,
   finish,
+  HealthWatch,
   rconExpect,
   record,
   TESTER_NAME,
@@ -102,43 +103,6 @@ async function buildArena(rcon: RconOptions, ox: number, oz: number): Promise<vo
     `fill ${ox} ${y + 1} ${z1 + 1} ${ox} ${y + 1} ${oz - 5} sweet_berry_bush[age=3]`,
     filled,
   );
-}
-
-/** Vigila la vida del agente (por RCON) y guarda la mínima. */
-class HealthWatch {
-  min = Infinity;
-  start: number | undefined;
-  private timer: NodeJS.Timeout | undefined;
-  private busy = false;
-
-  constructor(
-    private readonly rcon: RconOptions,
-    private readonly agentName: string,
-  ) {}
-
-  async read(): Promise<number | undefined> {
-    const response = await rconCommand(this.rcon, `data get entity ${this.agentName} Health`);
-    const match = /([\d.]+)f?\s*$/.exec(response.trim());
-    return match ? Number(match[1]) : undefined;
-  }
-
-  async begin(): Promise<void> {
-    this.start = await this.read();
-    this.timer = setInterval(() => {
-      if (this.busy) return;
-      this.busy = true;
-      this.read()
-        .then((health) => {
-          if (health !== undefined) this.min = Math.min(this.min, health);
-        })
-        .catch(() => undefined)
-        .finally(() => (this.busy = false));
-    }, 400);
-  }
-
-  end(): void {
-    clearInterval(this.timer);
-  }
 }
 
 async function removeArena(rcon: RconOptions, ox: number, oz: number): Promise<void> {
