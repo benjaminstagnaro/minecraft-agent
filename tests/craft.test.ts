@@ -11,10 +11,12 @@ describe('missingIngredients', () => {
   ];
 
   it('calcula lo que falta para craftear N veces', () => {
-    expect(missingIngredients(pickaxe, 1)).toEqual([{ name: 'oak_planks', count: 1 }]);
+    expect(missingIngredients(pickaxe, 1)).toEqual([
+      { name: 'oak_planks', count: 1, have: 2, need: 3 },
+    ]);
     expect(missingIngredients(pickaxe, 3)).toEqual([
-      { name: 'oak_planks', count: 7 },
-      { name: 'stick', count: 1 },
+      { name: 'oak_planks', count: 7, have: 2, need: 9 },
+      { name: 'stick', count: 1, have: 5, need: 6 },
     ]);
   });
 
@@ -24,6 +26,12 @@ describe('missingIngredients', () => {
 });
 
 describe('describeMissing (mensajes en español)', () => {
+  it('dice cuántos tiene de cuántos necesita (el caso de 4 tablones → 4 palos → pico)', () => {
+    expect(describeMissing([{ name: 'oak_planks', count: 1, have: 2, need: 3 }])).toBe(
+      '1 tablones de roble (tengo 2 de 3)',
+    );
+  });
+
   it('lista en español natural', () => {
     expect(describeMissing([{ name: 'stick', count: 2 }])).toBe('2 palos');
     expect(
@@ -60,6 +68,8 @@ describe('resolveItemGroup', () => {
     ['mesa', ['crafting_table']],
     ['pico de madera', ['wooden_pickaxe']],
     ['picos de madera', ['wooden_pickaxe']],
+    ['tablones de roble', ['oak_planks']],
+    ['tablones de abeto', ['spruce_planks']],
     ['antorcha', ['torch']],
   ])('"%s"', (phrase, items) => {
     expect(resolveItemGroup(phrase, known)?.items).toEqual(items);

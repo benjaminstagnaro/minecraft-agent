@@ -28,18 +28,33 @@ export interface Ingredient {
 }
 
 /** Lo que falta para craftear `times` veces. Vacío = alcanza. */
-export function missingIngredients(
-  ingredients: Ingredient[],
-  times: number,
-): { name: string; count: number }[] {
+export interface Missing {
+  name: string;
+  /** Cuántos faltan. */
+  count: number;
+  /** Cuántos tiene. */
+  have?: number;
+  /** Cuántos pide la receta en total. */
+  need?: number;
+}
+
+export function missingIngredients(ingredients: Ingredient[], times: number): Missing[] {
   return ingredients
-    .map(({ name, perCraft, have }) => ({ name, count: perCraft * times - have }))
+    .map(({ name, perCraft, have }) => ({
+      name,
+      count: perCraft * times - have,
+      have,
+      need: perCraft * times,
+    }))
     .filter((m) => m.count > 0);
 }
 
-/** "2 palos y 3 tablones de roble" */
-export function describeMissing(missing: { name: string; count: number }[]): string {
-  const parts = missing.map((m) => `${m.count} ${spanishName(m.name)}`);
+/** "1 tablones de roble (tengo 2 de 3) y 2 palos" */
+export function describeMissing(missing: Missing[]): string {
+  const parts = missing.map((m) => {
+    const detail = m.have && m.need ? ` (tengo ${m.have} de ${m.need})` : '';
+    return `${m.count} ${spanishName(m.name)}${detail}`;
+  });
   return parts.length <= 1
     ? (parts[0] ?? '')
     : `${parts.slice(0, -1).join(', ')} y ${parts.at(-1)}`;
@@ -80,18 +95,28 @@ async function craft(ctx: ToolContext, args: z.infer<typeof input>): Promise<Too
     itemIds.reduce((sum, id) => sum + bot.inventory.count(id, null), 0);
   const before = countTargets();
 
+  // Entre las variantes posibles (ej: tablones de roble o de abeto), usar la de los
+  // ingredientes que más tiene: si juntó abeto, que haga tablones de abeto.
+  const abundance = (recipe: Recipe): number =>
+    recipe.delta
+      .filter((d) => d.count < 0)
+      .reduce((sum, d) => sum + bot.inventory.count(d.id, null), 0);
+  const pickRecipe = (table: true | null): Recipe | undefined =>
+    itemIds
+      .map((id) => bot.recipesFor(id, null, args.count, table)[0])
+      .filter((recipe): recipe is Recipe => recipe !== undefined)
+      .sort((a, b) => abundance(b) - abundance(a))[0];
+
   // 1) ¿Se puede en la cuadrícula 2x2 del inventario?
-  for (const id of itemIds) {
-    const recipe = bot.recipesFor(id, null, args.count, null)[0];
-    if (recipe) {
-      await runCraft(ctx, recipe, args.count, undefined);
-      return done(countTargets() - before, label);
-    }
+  const inventoryRecipe = pickRecipe(null);
+  if (inventoryRecipe) {
+    await runCraft(ctx, inventoryRecipe, args.count, undefined);
+    return done(countTargets() - before, label);
   }
 
   // 2) ¿Se puede con mesa de crafteo?
-  for (const id of itemIds) {
-    const recipe = bot.recipesFor(id, null, args.count, true)[0];
+  {
+    const recipe = pickRecipe(true);
     if (recipe) {
       // Reservar los ingredientes del pedido: si hay que fabricar la mesa, que no se coma
       // los tablones que necesita el pico (por ejemplo).
@@ -311,7 +336,27 @@ function explainMissing(bot: Bot, itemIds: number[], count: number): string {
     }
   }
   if (!best) return 'no conozco ninguna receta para eso';
-  return `me faltan ${describeMissing(best.missing)}`;
+  return `me faltan ${describeMissing(best.missing)}${craftHint(bot, best.missing)}`;
+}
+
+/**
+ * Si algo de lo que falta se puede fabricar con lo que tiene (ej: tablones con troncos), lo
+ * sugiere. Un jugador espera eso: "le di 10 troncos, ¿por qué no le alcanzan los tablones?".
+ * (En la etapa 3 Claude encadenará estos pasos solo.)
+ */
+function craftHint(bot: Bot, missing: Missing[]): string {
+  for (const m of missing) {
+    const item = bot.registry.itemsByName[m.name];
+    if (!item) continue;
+    const recipe =
+      bot.recipesFor(item.id, null, m.count, null)[0] ??
+      bot.recipesFor(item.id, null, m.count, true)[0];
+    if (!recipe) continue;
+    const amount = Math.ceil(m.count / recipe.result.count) * recipe.result.count;
+    const name = spanishName(m.name);
+    return `. Puedo hacer ${name} con lo que tengo: dime "craftea ${amount} ${name}"`;
+  }
+  return '';
 }
 
 /**

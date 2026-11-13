@@ -101,7 +101,17 @@ async function main(): Promise<void> {
 
     // 3. Pico sin tablones suficientes (tiene 2 de 3): explicar.
     reply = await ask('@bot craftea un pico de madera');
-    record('Explica qué falta', /me faltan 1 tablones de roble/i.test(reply), reply);
+    record(
+      'Explica qué falta',
+      /me faltan 1 tablones de roble \(tengo 2 de 3\)/i.test(reply),
+      reply,
+    );
+    // Le queda 1 tronco: debe sugerir hacer tablones con él (lo que esperaba Benjamín en el juego).
+    record(
+      'Sugiere cómo conseguir lo que falta',
+      /dime "craftea 4 tablones de roble"/i.test(reply),
+      reply,
+    );
 
     // 4. Pico fabricando la mesa: 6 tablones + 1 tronco + 4 palos. Mesa (4) + pico (3) = 7 > 6:
     //    sin reservar ingredientes fallaría; debe convertir el tronco en tablones primero.

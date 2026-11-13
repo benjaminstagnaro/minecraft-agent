@@ -128,6 +128,11 @@ const ITEM_GROUPS: Record<string, ItemGroup> = {
   horno: { label: 'horno', items: ['furnace'] },
 };
 
+// "tablones de roble", "tablones de abeto"...: los usa el bot en sus sugerencias de crafteo.
+for (const [wood, es] of Object.entries(WOOD_ES)) {
+  ITEM_GROUPS[`tablones de ${es}`] = { label: `tablones de ${es}`, items: [`${wood}_planks`] };
+}
+
 /** Traduce lo que escribió el jugador a ítems que se pueden fabricar. */
 export function resolveItemGroup(
   phrase: string,
