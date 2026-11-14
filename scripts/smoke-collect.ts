@@ -13,14 +13,17 @@
  *   4. Los señuelos siguen intactos.
  *   5. Un abeto de 9 troncos (la punta no se alcanza desde el suelo) con tierra en el
  *      inventario: lo tala entero sin lastimarse y termina en el suelo.
+ *   6. "tala este árbol" mirando un abeto alto: tala ESE (no el más cercano) y lo recoge.
+ *   7. "para" estando arriba de su andamio: baja y quita la tierra igual.
  * Al terminar borra el bosquecito y los ítems sueltos.
  *
  * Requisitos: servidor encendido (npm run server:start) y agente conectado (npm run dev).
  * Uso: npm run smoke:collect            (todo)
- *      npm run smoke:collect -- --solo-alto   (solo la fase 5)
+ *      npm run smoke:collect -- --solo-alto   (solo las fases 5 a 7)
  */
 import { setTimeout as sleep } from 'node:timers/promises';
 import type { Bot } from 'mineflayer';
+import { Vec3 } from 'vec3';
 import { loadConfig } from '../src/config.js';
 import { ENV_FILE } from './lib/paths.js';
 import { rconCommand, readRconOptions, type RconOptions } from './lib/rcon.js';
@@ -163,22 +166,25 @@ async function order(
 }
 
 /**
- * Abeto fijo de 9 troncos con copa de hojas naturales (persistent=false): los 3 de arriba no
- * se alcanzan desde el suelo. Así fue el árbol en que el bot se cayó probando en el juego.
+ * Abeto fijo con copa de hojas naturales (persistent=false). Con 9 troncos (por defecto) los
+ * 3 de arriba no se alcanzan desde el suelo: así fue el árbol en que el bot se cayó en el juego.
  */
-async function buildTallSpruce(rcon: RconOptions, x: number, z: number): Promise<number> {
+async function buildSpruce(rcon: RconOptions, x: number, z: number, height = 9): Promise<number> {
   const y = ARENA_Y;
   const leaves = 'spruce_leaves[persistent=false,distance=1]';
-  // Capas de la copa (de abajo hacia arriba), radio alternado como un abeto real.
-  const layers: [number, number][] = [
-    [4, 2],
-    [5, 1],
-    [6, 2],
-    [7, 1],
-    [8, 1],
-    [9, 1],
-  ];
-  await rconExpect(rcon, `fill ${x} ${y + 1} ${z} ${x} ${y + 9} ${z} spruce_log`, FILLED);
+  // Capas de la copa (altura sobre el piso, radio), alternadas como un abeto real.
+  const h = height;
+  const layers = (
+    [
+      [h - 5, 2],
+      [h - 4, 1],
+      [h - 3, 2],
+      [h - 2, 1],
+      [h - 1, 1],
+      [h, 1],
+    ] as [number, number][]
+  ).filter(([dy]) => dy >= 2);
+  await rconExpect(rcon, `fill ${x} ${y + 1} ${z} ${x} ${y + h} ${z} spruce_log`, FILLED);
   for (const [dy, r] of layers) {
     await rconExpect(
       rcon,
@@ -186,8 +192,21 @@ async function buildTallSpruce(rcon: RconOptions, x: number, z: number): Promise
       FILLED,
     );
   }
-  await rconExpect(rcon, `setblock ${x} ${y + 10} ${z} ${leaves}`, /changed|cambi/i);
-  return 9;
+  await rconExpect(rcon, `setblock ${x} ${y + h + 1} ${z} ${leaves}`, /changed|cambi/i);
+  return h;
+}
+
+/** Cuenta (y borra) los bloques de tierra/adoquín que quedaron sobre el piso de la arena. */
+async function removeScaffold(rcon: RconOptions, ox: number, oz: number): Promise<number> {
+  let scaffold = 0;
+  for (const block of ['dirt', 'cobblestone']) {
+    const response = await rconCommand(
+      rcon,
+      `fill ${ox - HALF} ${ARENA_Y + 1} ${oz - HALF} ${ox + HALF} ${ARENA_Y + 15} ${oz + HALF} air replace ${block}`,
+    );
+    scaffold += FILLED.test(response) ? Number(/(\d+)/.exec(response)?.[1] ?? 0) : 0;
+  }
+  return scaffold;
 }
 
 /**
@@ -203,7 +222,7 @@ async function tallTreePhase(
   oz: number,
 ): Promise<void> {
   const spruce = { x: ox - 8, z: oz + 1 };
-  const tall = await buildTallSpruce(rcon, spruce.x, spruce.z);
+  const tall = await buildSpruce(rcon, spruce.x, spruce.z);
   await rconCommand(rcon, `give ${agentName} dirt 8`);
   await rconCommand(rcon, `give ${agentName} cobblestone 4`);
   await rconCommand(rcon, `tp ${agentName} ${spruce.x + 3.5} ${ARENA_Y + 1} ${spruce.z + 0.5}`);
@@ -237,15 +256,7 @@ async function tallTreePhase(
     left === 0 && got === tall,
     `quedaron ${left} de ${tall} troncos en el árbol; tiene ${got} en el inventario`,
   );
-  // Bloques de andamio que quedaron sobre el piso de la arena (se borran al contarlos).
-  let scaffold = 0;
-  for (const block of ['dirt', 'cobblestone']) {
-    const response = await rconCommand(
-      rcon,
-      `fill ${ox - HALF} ${ARENA_Y + 1} ${oz - HALF} ${ox + HALF} ${ARENA_Y + 15} ${oz + HALF} air replace ${block}`,
-    );
-    scaffold += FILLED.test(response) ? Number(/(\d+)/.exec(response)?.[1] ?? 0) : 0;
-  }
+  const scaffold = await removeScaffold(rcon, ox, oz);
   record('No deja andamios', scaffold === 0, `bloques de tierra/adoquín que quedaron: ${scaffold}`);
   record(
     'Termina en el suelo (no queda atrapado arriba)',
@@ -254,8 +265,114 @@ async function tallTreePhase(
   );
 }
 
-/** Con `--solo-alto` corre solo la fase del árbol alto (para iterar rápido). */
+/** El probador mira el tronco (a la altura de los ojos) para "tala este árbol". */
+async function lookAtTrunk(bot: Bot, x: number, z: number): Promise<void> {
+  await bot.lookAt(new Vec3(x + 0.5, ARENA_Y + 2.5, z + 0.5), true);
+  await sleep(700); // que el servidor le avise al agente hacia dónde miramos
+}
+
+/**
+ * Fase "tala este árbol": un abeto alto (A) y uno chico (B) MÁS CERCA del agente. El probador
+ * mira A y le pide "tala este árbol": debe talar A completo y no tocar B (antes siempre iba al
+ * más cercano; lo pidió Benjamín).
+ */
+async function chopLookedPhase(
+  bot: Bot,
+  rcon: RconOptions,
+  agentName: string,
+  ox: number,
+  oz: number,
+): Promise<void> {
+  const a = { x: ox + 7, z: oz + 1 };
+  const b = { x: ox + 2, z: oz + 4 };
+  const tallA = await buildSpruce(rcon, a.x, a.z);
+  const smallB = await buildSpruce(rcon, b.x, b.z, 4);
+  await rconCommand(rcon, `give ${agentName} dirt 8`);
+  await rconCommand(rcon, `tp ${agentName} ${ox + 3.5} ${ARENA_Y + 1} ${oz + 3.5}`);
+  await rconCommand(rcon, `tp ${TESTER_NAME} ${ox + 3.5} ${ARENA_Y + 1} ${oz - 1.5}`);
+  await sleep(2000);
+  await lookAtTrunk(bot, a.x, a.z);
+
+  const before = await countItems(rcon, agentName, 'spruce_log');
+  const started = Date.now();
+  const reply = await order(bot, agentName, '@bot tala este árbol', /listo|talé|no /i, 240_000);
+  const seconds = ((Date.now() - started) / 1000).toFixed(0);
+  await sleep(1000);
+  const leftA = await treeLogs(rcon, a.x, a.z, 'spruce_log');
+  const leftB = await treeLogs(rcon, b.x, b.z, 'spruce_log');
+  const got = (await countItems(rcon, agentName, 'spruce_log')) - before;
+  record(
+    'Tala el árbol que miro (no el más cercano)',
+    reply !== null && /talé el árbol completo/i.test(reply) && leftA === 0 && leftB === smallB,
+    `respondió "${reply ?? 'nada'}" en ${seconds} s; quedan ${leftA}/${tallA} en el que miré y ` +
+      `${leftB}/${smallB} en el más cercano`,
+  );
+  record('Recoge los troncos del árbol que miro', got === tallA, `recogió ${got} de ${tallA}`);
+  await removeScaffold(rcon, ox, oz);
+}
+
+/**
+ * Fase "para en el andamio": Benjamín vio que si le dice "para" mientras está arriba de su
+ * pilar, la tierra queda puesta. Ahora, aunque lo cancelen, debe bajar y quitarla.
+ */
+async function stopOnScaffoldPhase(
+  bot: Bot,
+  rcon: RconOptions,
+  agentName: string,
+  ox: number,
+  oz: number,
+): Promise<void> {
+  const a = { x: ox + 7, z: oz + 1 };
+  await buildSpruce(rcon, a.x, a.z);
+  await rconCommand(rcon, `give ${agentName} dirt 8`);
+  await rconCommand(rcon, `tp ${agentName} ${ox + 3.5} ${ARENA_Y + 1} ${oz + 3.5}`);
+  await sleep(2000);
+  await lookAtTrunk(bot, a.x, a.z);
+
+  const working = await order(bot, agentName, '@bot tala este árbol', /voy a talar/i, 5_000);
+  // Parado sobre su andamio: pies sobre el suelo y a una altura entera (no a mitad de un salto,
+  // cuando todavía no alcanza a poner el bloque).
+  const standingHigh = (): boolean => {
+    const y = bot.players[agentName]?.entity?.position.y ?? 0;
+    return y >= ARENA_Y + 2 && Math.abs(y - Math.round(y)) < 0.01;
+  };
+  const elevated = await waitFor(standingHigh, 120_000, 100);
+  await sleep(300);
+  const stopReply = waitForAgentChat(bot, agentName, /detenido/i, 30_000);
+  bot.chat('@bot para');
+  const stopped = await stopReply;
+  await sleep(1500);
+  const feet = bot.players[agentName]?.entity?.position;
+  const scaffold = await removeScaffold(rcon, ox, oz);
+  record(
+    'Con "para" arriba del andamio: baja y quita la tierra',
+    working !== null &&
+      elevated &&
+      stopped !== null &&
+      scaffold === 0 &&
+      (feet?.y ?? 999) < ARENA_Y + 2,
+    `subió: ${String(elevated)}; respondió "${stopped ?? 'nada'}"; pies en ` +
+      `y=${feet?.y.toFixed(2) ?? '?'}; tierra que quedó: ${scaffold}`,
+  );
+}
+
+/** Con `--solo-alto` corre solo las fases de árboles altos (5 a 7), para iterar rápido. */
 const ONLY_TALL = process.argv.includes('--solo-alto');
+
+async function tallPhases(
+  bot: Bot,
+  rcon: RconOptions,
+  agentName: string,
+  ox: number,
+  oz: number,
+): Promise<void> {
+  // ── 5. Árbol alto ──────────────────────────────────────────────────────────
+  await tallTreePhase(bot, rcon, agentName, ox, oz);
+  // ── 6. "Tala este árbol" (el que miro, no el más cercano) ──────────────────
+  await chopLookedPhase(bot, rcon, agentName, ox, oz);
+  // ── 7. "Para" estando arriba del andamio ───────────────────────────────────
+  await stopOnScaffoldPhase(bot, rcon, agentName, ox, oz);
+}
 
 async function main(): Promise<void> {
   const config = loadConfig(ENV_FILE);
@@ -281,7 +398,7 @@ async function main(): Promise<void> {
     await rconCommand(rcon, `tp ${TESTER_NAME} ${ox + 2.5} ${ARENA_Y + 1} ${oz - 0.5}`);
     await sleep(2500);
     if (ONLY_TALL) {
-      await tallTreePhase(bot, rcon, agentName, ox, oz);
+      await tallPhases(bot, rcon, agentName, ox, oz);
       return;
     }
 
@@ -346,8 +463,8 @@ async function main(): Promise<void> {
       `${intact}/${arena.decoys.length} bloques de los señuelos siguen en su lugar`,
     );
 
-    // ── 5. Árbol alto ──────────────────────────────────────────────────────────
-    await tallTreePhase(bot, rcon, agentName, ox, oz);
+    // ── 5 a 7. Árboles altos ───────────────────────────────────────────────────
+    await tallPhases(bot, rcon, agentName, ox, oz);
   } finally {
     bot.chat('@bot para');
     await sleep(500);

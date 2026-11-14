@@ -1,4 +1,5 @@
 import { z } from 'zod';
+import { knownSpanishName } from '../bot/names.js';
 import type { Tool } from './types.js';
 
 const input = z.object({});
@@ -25,7 +26,10 @@ export const getStatusTool: Tool<typeof input> = {
     const p = bot.entity.position;
     const inventory = summarizeInventory(bot.inventory.items());
     const listed = inventory.length
-      ? inventory.map((i) => `${i.count} ${i.displayName}`).join(', ')
+      ? inventory
+          // En español si lo conocemos; si no, el nombre del juego (en inglés).
+          .map((i) => `${i.count} ${knownSpanishName(i.name) ?? i.displayName}`)
+          .join(', ')
       : 'vacío';
 
     return Promise.resolve({

@@ -240,6 +240,13 @@ const input = z.object({
     .describe('IDs de bloque de Minecraft que sirven, ej: ["oak_log"] o todos los troncos'),
   count: z.number().int().min(1).max(64).describe('Cuántos ítems conseguir'),
   label: z.string().optional().describe('Nombre para mostrar en el chat, ej: "troncos"'),
+  tree: z
+    .object({ x: z.number().int(), y: z.number().int(), z: z.number().int() })
+    .optional()
+    .describe(
+      'Opcional: talar SOLO el árbol que tiene un tronco en esta posición (completo, hasta ' +
+        '`count`). Ej: el árbol que está mirando el jugador.',
+    ),
 });
 
 export const collectBlockTool: Tool<typeof input> = {
@@ -248,7 +255,8 @@ export const collectBlockTool: Tool<typeof input> = {
     'Busca bloques cercanos (radio 48), camina hasta ellos, los pica con la mejor herramienta ' +
     'disponible y recoge lo que sueltan, hasta conseguir `count` ítems. Solo tala troncos de ' +
     'árboles naturales (nunca de construcciones). Falla con explicación si no hay más bloques, ' +
-    'si falta la herramienta adecuada (ej: pico para piedra) o si el inventario está lleno.',
+    'si falta la herramienta adecuada (ej: pico para piedra) o si el inventario está lleno. ' +
+    'Con `tree`, tala solo ese árbol, de abajo hacia arriba, hasta terminarlo.',
   input,
   timeoutMs: 5 * 60_000,
   run: collect,
@@ -338,7 +346,28 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
     return block !== null && targetIds.has(block.type);
   };
 
+  // Modo "tala este árbol": solo los troncos conectados al indicado.
+  let treeOnly: Set<string> | undefined;
+  const treeLeft = (): Vec3[] =>
+    [...(treeOnly ?? [])]
+      .map((k) => new Vec3(...(k.split(',').map(Number) as [number, number, number])))
+      .filter((p) => isTargetAt(p.x, p.y, p.z));
+
   try {
+    if (args.tree) {
+      const { x, y, z } = args.tree;
+      const seed = bot.blockAt(new Vec3(x, y, z));
+      if (!seed || !targetIds.has(seed.type)) {
+        return { ok: false, message: `En ${x} ${y} ${z} no hay ${label}.` };
+      }
+      if (!isNatural(seed)) {
+        return { ok: false, message: 'Ese tronco parece de una construcción: no lo toco.' };
+      }
+      treeOnly = connectedBlocks([[x, y, z]], isTargetAt);
+      currentTree = new Set(treeOnly);
+      log.info(`Talo el árbol de ${x},${y},${z}: ${treeOnly.size} troncos`);
+    }
+
     while (gained() < args.count) {
       throwIfAborted(signal);
       if (bot.inventory.emptySlotCount() === 0) {
@@ -350,11 +379,9 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
       }
 
       // Candidatos: los más cercanos que no hayan fallado y que no sean de construcciones.
-      const positions = bot.findBlocks({
-        matching: [...targetIds],
-        maxDistance: SEARCH_RADIUS,
-        count: 128,
-      });
+      const positions = treeOnly
+        ? treeLeft()
+        : bot.findBlocks({ matching: [...targetIds], maxDistance: SEARCH_RADIUS, count: 128 });
       let skippedBuilt = 0;
       const candidates: Block[] = [];
       for (const pos of positions) {
@@ -370,6 +397,22 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
       const here = bot.entity.position;
       const target = pickNextTarget(candidates, here, currentTree);
 
+      if (!target && treeOnly) {
+        const left = treeLeft().length;
+        return left === 0
+          ? {
+              ok: true,
+              message: `Listo: talé el árbol completo (junté ${gained()} ${label}).`,
+              data: { gained: gained() },
+            }
+          : {
+              ok: false,
+              message:
+                `Talé parte del árbol (junté ${gained()} ${label}), pero no logro llegar a ` +
+                `${left} troncos.`,
+              data: { gained: gained(), left },
+            };
+      }
       if (!target) {
         const built =
           skippedBuilt > 0
@@ -433,7 +476,7 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
         const { x, y, z } = fresh.position;
         currentTree = connectedBlocks(neighbors26(x, y, z), isTargetAt);
         log.info(
-          `Llevo ${gained()}/${args.count} ${label} (${fresh.name} en ${x},${y},${z}; ` +
+          `Llevo ${gained()}/${treeOnly?.size ?? args.count} ${label} (${fresh.name} en ${x},${y},${z}; ` +
             `quedan ${currentTree.size} en este árbol)`,
         );
         log.debug(
@@ -473,10 +516,13 @@ async function collect(ctx: ToolContext, args: z.infer<typeof input>): Promise<T
       data: { gained: gained(), total: countDrops() },
     };
   } finally {
-    // Termine como termine (salvo que lo hayan cancelado con "para"), no quedar sobre un pilar.
-    if (!signal.aborted && placedByMe.size > 0) {
-      await climbDown(ctx, isOwn, isLeavesAt, isSolidAt, placedByMe).catch((error: unknown) =>
-        log.warn('No pude bajar del andamio', error),
+    // Termine como termine, también si lo cancelan ("para", "sígueme"): bajar del andamio y no
+    // dejar la tierra puesta (lo vio Benjamín). El ejecutor espera a que esto termine antes de
+    // la orden siguiente, así que no se cruza con ella. Es seguro: baja de a 1 bloque.
+    if (placedByMe.size > 0) {
+      const cleanup = signal.aborted ? AbortSignal.timeout(20_000) : signal;
+      await climbDown({ ...ctx, signal: cleanup }, isOwn, isLeavesAt, isSolidAt, placedByMe).catch(
+        (error: unknown) => log.warn('No pude bajar del andamio', error),
       );
     }
     bot.off('blockUpdate', onBlockUpdate);
@@ -534,7 +580,7 @@ async function climbDown(
     }
   }
   const fell = startY - Math.floor(bot.entity.position.y);
-  if (fell > 0) log.info(`Bajé ${fell} bloques picando mi andamio`);
+  if (fell > 0) log.info(`Bajé ${fell} ${fell === 1 ? 'bloque' : 'bloques'} picando mi andamio`);
 
   // Lo que quedó del andamio al alcance (ej: un escalón al lado del tronco): no dejar basura.
   const feet = cellsUnderFeet(bot.entity.position);

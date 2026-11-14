@@ -2,14 +2,15 @@ import mineflayer, { type Bot } from 'mineflayer';
 import pathfinderPkg from 'mineflayer-pathfinder';
 import type { AppConfig } from '../config.js';
 import { createLogger } from '../logger.js';
-import { collectBlockTool } from '../tools/collectBlock.js';
+import { collectBlockTool, isLogName } from '../tools/collectBlock.js';
 import { craftItemTool } from '../tools/craftItem.js';
 import { placeBlockTool } from '../tools/placeBlock.js';
 import { getStatusTool } from '../tools/getStatus.js';
+import { blockPlayerLooksAt } from '../tools/lookAt.js';
 import { ActionRunner } from '../tools/runner.js';
 import { HELP_TEXT, parseCommand, resolveCoordinates, type Command } from './commands.js';
 import { MovementController } from './movement.js';
-import { resolveBlockGroup, resolveItemGroup } from './names.js';
+import { resolveBlockGroup, resolveItemGroup, spanishName } from './names.js';
 import { isHardcoreLogin } from './safety.js';
 
 const { pathfinder } = pathfinderPkg;
@@ -207,6 +208,34 @@ async function handleCommand(
         blocks: group.blocks,
         count: command.count,
         label: group.label,
+      });
+      say(result.message);
+      break;
+    }
+    case 'chop': {
+      // El árbol que está mirando el jugador (el rayo atraviesa las hojas).
+      if (!bot.players[username]?.entity) {
+        say('No te veo: acércate y mira el tronco del árbol.');
+        return;
+      }
+      const looked = blockPlayerLooksAt(bot, username);
+      if (!looked || !isLogName(looked.name)) {
+        say(
+          looked
+            ? `Estás mirando ${spanishName(looked.name)}, no un tronco. Mira el tronco del árbol.`
+            : 'No veo qué estás mirando: mira el tronco del árbol (a menos de 32 bloques).',
+        );
+        return;
+      }
+      const { x, y, z } = looked.position;
+      const label = spanishName(looked.name);
+      movement.stop(true);
+      say(`Voy a talar ese árbol (${label}).`);
+      const result = await runner.run(collectBlockTool, {
+        blocks: [looked.name],
+        count: 64,
+        label,
+        tree: { x, y, z },
       });
       say(result.message);
       break;

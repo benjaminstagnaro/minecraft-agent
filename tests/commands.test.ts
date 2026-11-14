@@ -103,3 +103,23 @@ describe('parseCommand: juntar', () => {
     expect(parseCommand('@bot junta 500 troncos', BOT)).toMatchObject({ count: 500 });
   });
 });
+
+describe('parseCommand: talar el árbol que miro', () => {
+  it.each([
+    '@bot tala este árbol',
+    '@bot corta ese arbol',
+    '@bot tala aquel árbol por favor',
+    '@bot tala el árbol que estoy mirando',
+    '@Agente córtame este árbol!',
+  ])('"%s" → chop', (message) => {
+    expect(parseCommand(message, BOT)).toEqual({ kind: 'chop' });
+  });
+
+  it('"tala 3 troncos" sigue siendo juntar', () => {
+    expect(parseCommand('@bot tala 3 troncos', BOT)).toEqual({
+      kind: 'collect',
+      count: 3,
+      what: 'troncos',
+    });
+  });
+});

@@ -10,6 +10,7 @@ export type Command =
   | { kind: 'help' }
   | { kind: 'status' }
   | { kind: 'collect'; count: number; what: string }
+  | { kind: 'chop' }
   | { kind: 'craft'; count: number; what: string }
   | { kind: 'place'; what: string; at: [Coordinate, Coordinate, Coordinate] }
   | { kind: 'unknown'; text: string };
@@ -121,7 +122,13 @@ function parsePlace(normalized: string): Command | undefined {
   };
 }
 
+/** "tala este árbol", "corta ese árbol", "tala el árbol que estoy mirando". */
+const CHOP_PATTERN =
+  /^(?:tala|talame|corta|cortame|chop)\s+(?:(?:este|ese|aquel)\s+arbol|el\s+arbol\s+que\s+(?:estoy\s+mirando|miro))$/;
+
 function parseAction(normalized: string): Command | undefined {
+  // Antes que "junta": "tala" también es verbo de recolectar ("tala 5 troncos").
+  if (CHOP_PATTERN.test(normalized)) return { kind: 'chop' };
   const place = parsePlace(normalized);
   if (place) return place;
   const collect = parseCounted(normalized, COLLECT_VERBS, DEFAULT_COLLECT_COUNT);
@@ -181,4 +188,5 @@ export function parseCommand(message: string, botName: string): Command | null {
 
 export const HELP_TEXT =
   'Comandos: "@bot sígueme", "@bot ven", "@bot para", "@bot estado", ' +
-  '"@bot junta 10 troncos", "@bot craftea 4 tablones", "@bot pon tierra en x y z" (o ~ ~ ~).';
+  '"@bot junta 10 troncos", "@bot tala este árbol" (el que miras), "@bot craftea 4 tablones", ' +
+  '"@bot pon tierra en x y z".';

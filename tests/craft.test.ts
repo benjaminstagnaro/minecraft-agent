@@ -50,6 +50,8 @@ describe('spanishName', () => {
     ['dark_oak_planks', 'tablones de roble oscuro'],
     ['birch_log', 'troncos de abedul'],
     ['crafting_table', 'mesa de crafteo'],
+    ['wooden_pickaxe', 'pico de madera'],
+    ['spruce_sapling', 'brotes de abeto'],
     ['diamond_pickaxe', 'diamond pickaxe'], // sin traducción: legible igual
   ])('%s → %s', (id, name) => {
     expect(spanishName(id)).toBe(name);

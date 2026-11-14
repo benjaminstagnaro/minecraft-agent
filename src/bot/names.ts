@@ -158,15 +158,33 @@ const SPANISH_NAMES: Record<string, string> = {
   iron_ingot: 'lingotes de hierro',
   dirt: 'tierra',
   sand: 'arena',
+  gravel: 'grava',
+  stone: 'piedra',
+  glass: 'vidrio',
+  torch: 'antorchas',
+  chest: 'cofre',
+  furnace: 'horno',
+  apple: 'manzanas',
+  wooden_pickaxe: 'pico de madera',
+  stone_pickaxe: 'pico de piedra',
+  wooden_axe: 'hacha de madera',
+  stone_axe: 'hacha de piedra',
+  wooden_shovel: 'pala de madera',
 };
 
-/** Nombre en español para los mensajes ("oak_planks" → "tablones de roble"). */
-export function spanishName(name: string): string {
+/** Nombre en español si lo conocemos ("oak_planks" → "tablones de roble"), o `undefined`. */
+export function knownSpanishName(name: string): string | undefined {
   const known = SPANISH_NAMES[name];
   if (known) return known;
-  const wood = /^(.+)_(planks|log)$/.exec(name);
-  if (wood?.[1] && WOOD_ES[wood[1]]) {
-    return `${wood[2] === 'planks' ? 'tablones' : 'troncos'} de ${WOOD_ES[wood[1]]}`;
+  const wood = /^(.+)_(planks|log|sapling)$/.exec(name);
+  const kind = { planks: 'tablones', log: 'troncos', sapling: 'brotes' } as const;
+  if (wood?.[1] && wood[2] && WOOD_ES[wood[1]]) {
+    return `${kind[wood[2] as keyof typeof kind]} de ${WOOD_ES[wood[1]]}`;
   }
-  return name.replace(/_/g, ' ');
+  return undefined;
+}
+
+/** Nombre en español para los mensajes; si no lo conocemos, el ID legible ("diamond pickaxe"). */
+export function spanishName(name: string): string {
+  return knownSpanishName(name) ?? name.replace(/_/g, ' ');
 }
