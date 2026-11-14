@@ -10,8 +10,9 @@ Inspirado en [Voyager](https://voyager.minedojo.org/) (NVIDIA), pero práctico y
 @bot construye una casa estilo Miami    (etapa 4)
 ```
 
-> **Estado:** etapa 2 de 7: el bot te sigue, junta recursos, craftea y pone bloques con comandos
-> fijos (falta la prueba final en el juego). La IA (Claude con _tool use_) llega en la etapa 3.
+> **Estado:** etapas 1 y 2 de 7 listas: el bot te sigue, tala árboles (también el que estás
+> mirando), recoge, craftea y pone bloques con comandos fijos, probado en el juego. La IA (Claude
+> con _tool use_) llega en la etapa 3.
 
 ## Cómo funciona
 
@@ -71,6 +72,7 @@ Después abre Minecraft **26.1.2** → Multijugador → Conexión directa → `l
 | `@bot ayuda`               | Lista los comandos                                                                                                                                                                               |
 | `@bot estado`              | Vida, comida, posición e inventario                                                                                                                                                              |
 | `@bot junta 10 troncos`    | Tala árboles **naturales** (nunca troncos de tus construcciones) y recoge lo que cae. También: tierra, arena, grava, piedra, carbón o un ID (`oak_log`)                                          |
+| `@bot tala este árbol`     | Tala completo el árbol cuyo tronco estás **mirando** (aunque lo mires a través de las hojas), no el más cercano                                                                                  |
 | `@bot craftea 4 palos`     | Craftea con lo que tiene. Si hace falta, usa o pone una mesa de crafteo (y la fabrica). Si le falta algo, dice qué. También: tablones, mesa, pico de madera, antorchas, cofre...                 |
 | `@bot pon tierra en x y z` | Pone un bloque de su inventario. Acepta coordenadas relativas a ti, como en los comandos: `@bot pon adoquines en ~2 ~ ~`. Explica si no puede (ocupado, sin apoyo, no lo tiene, hay alguien ahí) |
 
@@ -114,12 +116,15 @@ Resultado: **8/8**.
 **`smoke:collect`** planta 4 robles naturales pegados (como en un bosque) y 2 "señuelos" de
 construcción (troncos sin hojas y con hojas puestas a mano). Verifica que `junta 10 troncos` los
 consiga, que **termine cada árbol antes de pasar a otro** (a lo más queda a medias el último),
-que `para` lo detenga a mitad de la tarea, que explique cuando no hay suficientes y que **los
-señuelos queden intactos**. Resultado: **5/5**.
+que `para` lo detenga a mitad de la tarea, que explique cuando no hay suficientes, que **recoja
+todo lo que tala** y que **los señuelos queden intactos**. Después arma abetos de 9 troncos (la
+punta no se alcanza desde el suelo) y le da tierra, como en la partida en que se cayó: debe talarlos
+**sin perder vida**, bajar de su andamio y no dejar tierra puesta; talar el árbol que mira el
+probador y no el más cercano; y bajar de su andamio aunque le digan `para` arriba. Resultado: **13/13**.
 
 **`smoke:craft`** le da materiales y le pide: tablones, palos, un pico sin tablones suficientes
-(debe decir qué falta), un pico fabricando la mesa sin gastarse lo del pico, un cofre con la mesa
-existente y un pico de piedra sin piedra. Resultado: **7/7** (6 corridas seguidas).
+(debe decir qué falta, cuántos tiene y sugerir cómo conseguirlo), un pico fabricando la mesa sin
+gastarse lo del pico, un cofre con la mesa existente y un pico de piedra sin piedra. Resultado: **8/8**.
 
 **`smoke:place`** le da tierra y adoquines y verifica que ponga un bloque en el suelo y otro
 encima, que use coordenadas relativas (`~2 ~ ~`), que camine hasta un lugar lejano, que se corra
@@ -160,6 +165,20 @@ lugar ocupado, no tiene el bloque, o hay un jugador ahí. Resultado: **9/9**.
   (`src/tools/craftItem.ts`): esperar la respuesta del servidor tras cada clic, verificar el
   resultado contra el inventario real sincronizado y, si algo quedó en la cuadrícula, devolverlo
   y reintentar. Así el bot nunca dice "Listo" sin haberlo comprobado.
+- **La caída del abeto.** Probando en el juego, el bot se cayó ~6 bloques talando un abeto alto.
+  El log reveló el porqué: tenía tierra sobrante, el pathfinder armó un pilar, el bot se paró sobre
+  el último tronco y lo picó. Ahora nunca pica lo que tiene bajo los pies, no se tira desde más
+  de 3 bloques y, al terminar (o si lo cancelan), baja picando su propio andamio. Como el
+  pathfinder no avisa cuando pone un bloque, el bot lo detecta escuchando los cambios de bloques
+  a su alrededor. Reproducido en `smoke:collect` antes de darlo por arreglado.
+- **15 segundos por tronco.** Arriba del pilar cada tronco tardaba 15 s en vez de 3. Minecraft
+  pica 5 veces más lento en el aire, y `pathfinder.stop()` no frena en seco: termina el salto en
+  curso, que se cruzaba con el picado. Ahora espera a pisar suelo antes de picar.
+- **Troncos tirados sin recoger** (lo vio Benjamín en el juego). El objetivo "a 1 bloque" del
+  pathfinder cuenta por celdas, y el bot podía quedar a 1,6 del ítem, fuera del radio de
+  recogida. Ahora se para sobre la celda del ítem, y si uno quedó sobre la copa rompe la hoja de abajo.
+- **"Tala este árbol".** Un rayo desde los ojos del jugador (mineflayer recibe su giro de cabeza)
+  hasta el primer bloque sólido, atravesando hojas (`src/tools/lookAt.ts`).
 - **Vitest en Windows.** Si la terminal abre la carpeta como `c:\` (minúscula, típico de VS Code),
   Vitest carga su módulo dos veces y todos los tests fallan. `scripts/vitest.mjs` normaliza la ruta.
 
@@ -184,6 +203,7 @@ src/
     ├── placeBlock.ts   "pon <bloque> en x y z"
     ├── placement.ts    dónde y cómo poner un bloque (apoyo, no encima de nadie)
     ├── goals.ts        objetivos del pathfinder "al alcance de la mano" (sin exigir línea de visión)
+    ├── lookAt.ts       qué bloque está mirando un jugador ("tala este árbol")
     ├── getStatus.ts    "estado"
     └── registry.ts     lista de herramientas
 scripts/                servidor de pruebas (setup, start, RCON) y pruebas end-to-end
@@ -193,7 +213,7 @@ tests/                  tests unitarios
 ## Hoja de ruta
 
 1. ✅ **Base**: el bot entra, saluda y te sigue sin quedarse pegado
-2. 🔨 **Acciones**: ✅ juntar, ✅ craftear, ✅ poner bloques (sin IA). Falta la prueba final en el juego
+2. ✅ **Acciones**: juntar, talar el árbol que miras, craftear y poner bloques (sin IA), probado en el juego
 3. **Cerebro**: Claude con _tool use_, órdenes en lenguaje natural
 4. **Construcción en creativo**: Claude diseña planos y un ejecutor los construye
 5. **Survival**: calcula materiales, los junta y construye

@@ -132,7 +132,7 @@ minecraft-agent/
 ## Estado actual
 
 - [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour, bayas). Cerrada: merge a `main` y publicada en https://github.com/benjaminstagnaro/minecraft-agent (2026-11-11).
-- [ ] Etapa 2: Acciones (en curso, rama `etapa-2-acciones`): ✅ `estado`, ✅ `junta N <bloque>` (smoke:collect 4/4), ✅ `craftea N <ítem>` (smoke:craft 7/7). ✅ `pon <bloque> en x y z` con coordenadas relativas `~` (smoke:place 9/9). Falta: la prueba de Benjamín en el juego (junta con la lógica nueva de árboles, craftea y pon) y después merge a `main`.
+- [x] Etapa 2: Acciones: `estado`, `junta N <bloque>`, `tala este árbol`, `craftea N <ítem>`, `pon <bloque> en x y z`. Pruebas e2e: collect 13/13, craft 8/8, follow 8/8, place 9/9. **Probada por Benjamín en el juego** (3 rondas). Cerrada: merge a `main` y push (2026-11-14).
   - "junta" termina cada árbol (de abajo hacia arriba) antes de pasar a otro y prefiere no romper hojas (reportado por Benjamín en el juego; smoke:collect con 4 robles pegados: 3/3, a lo más 1 árbol a medias).
   - Arreglos tras la 2ª prueba de Benjamín en el juego (2026-11-12), con commit y pruebas e2e OK (collect 10/10, craft 8/8, follow 8/8, place 9/9):
     - Caída al talar un abeto alto: el bot tenía tierra (sobrante de smoke:place), armó un pilar, se paró sobre el último tronco y lo picó (cayó ~6, 3 de vida). Ahora: `GoalDigFrom` (nunca parado encima de lo que pica), `digHazard`, `maxDropDown=3`, y baja picando su propio andamio al terminar cada árbol (no queda atrapado arriba ni deja pilares).
@@ -141,7 +141,9 @@ minecraft-agent/
     - Crafteo: mensaje "me faltan 1 tablones de roble (tengo 2 de 3)" + sugerencia "dime craftea 4 tablones de roble".
   - 3ª prueba de Benjamín en el juego (2026-11-14): abeto alto con tierra ✅, recoge todo ✅, crafteo con el mensaje nuevo ✅. Observó: (a) "para" en medio dejaba la tierra del pilar puesta → ahora baja y la quita aunque lo cancelen (el ejecutor espera esa limpieza antes de la orden siguiente); (b) siempre iba al árbol más cercano → nuevo `@bot tala este árbol` (el que mira el jugador: rayo desde sus ojos que atraviesa hojas, `src/tools/lookAt.ts`; parámetro `tree` en collect_block). `estado` ahora en español. smoke:collect 13/13 (fases 6 y 7 nuevas), craft 8/8, follow 8/8, place 9/9.
   - Benjamín no probó `pon ... x y z`: dice que nadie escribirá coordenadas. De acuerdo: es para que Claude lo use (etapa 3: "pon una antorcha aquí"; etapa 4: planos). Queda cubierto por smoke:place.
-  - **AL RETOMAR:** (1) Benjamín prueba en el juego `@bot tala este árbol` (mirando el tronco) y "para" con el bot arriba del pilar; (2) si está OK: merge `etapa-2-acciones` → `main` y push; (3) etapa 3.
+  - 4ª prueba (2026-11-14): `tala este árbol` ✅ (8 troncos) y "para" arriba del pilar ✅ (bajó 4 bloques). Un caso dijo "Ese tronco parece de una construcción" (01:32): preguntado a Benjamín qué miraba; si era un árbol normal, revisar `isNaturalLog`. Detalle: dice "Voy a talar ese árbol" antes de validar el tronco.
+  - Pendientes menores: "1 palos" (plural con 1); que el bot se defienda o huya de mobs (Benjamín le pegó 1 de vida para probar).
+- [ ] Etapa 3: Cerebro (siguiente).
   - Iterar rápido las fases de árboles altos (5 a 7): `npm run smoke:collect -- --solo-alto`. Logs de depuración: iniciar el agente con `LOG_LEVEL=debug`.
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
