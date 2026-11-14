@@ -38,6 +38,9 @@ export function harmfulBlockIds(registry: Registry): number[] {
  */
 export const BRUSH_PENALTY = 5;
 
+/** Mayor caída sin daño: en Minecraft el daño empieza al caer más de 3 bloques. */
+export const SAFE_DROP = 3;
+
 const NEIGHBORS_8 = [
   [1, 0],
   [-1, 0],
@@ -73,11 +76,38 @@ export function createMovements(bot: Bot): InstanceType<typeof Movements> {
   movements.canDig = false;
   movements.allowSprinting = true;
   movements.allowParkour = true;
+  // Caer más de 3 bloques quita vida. El pathfinder por defecto se tira hasta 4.
+  movements.maxDropDown = SAFE_DROP;
 
   const harmful = new Set(harmfulBlockIds(bot.registry));
   for (const id of harmful) movements.blocksToAvoid.add(id);
 
   const blockTypeAt = (position: Vec3): number | undefined => bot.blockAt(position)?.type;
   movements.exclusionAreasStep.push((block) => brushPenalty(block.position, blockTypeAt, harmful));
+  return movements;
+}
+
+/** Costo que el pathfinder interpreta como "prohibido" (>= 100). */
+const FORBIDDEN = 100;
+
+type PathBlock = Parameters<InstanceType<typeof Movements>['safeToBreak']>[0];
+
+/**
+ * Movimiento "de trabajo" (por ejemplo, para talar): igual que el normal, pero puede
+ * romper bloques en el camino SOLO si `canBreak` lo permite (ej: hojas naturales y el
+ * bloque objetivo). Nunca abre un hoyo en una pared tuya para llegar a un árbol.
+ */
+export function createWorkMovements(
+  bot: Bot,
+  canBreak: (block: PathBlock) => boolean,
+  /** Recargo por atravesar (y por lo tanto romper) un bloque: ej. hojas, para preferir rodear. */
+  passPenalty?: (block: PathBlock) => number,
+): InstanceType<typeof Movements> {
+  const movements = createMovements(bot);
+  movements.canDig = true;
+  movements.exclusionAreasBreak.push((block) => (canBreak(block) ? 0 : FORBIDDEN));
+  // Ojo: el pathfinder NO suma el costo de exclusionAreasBreak (solo lo usa como sí/no), pero
+  // sí suma exclusionAreasStep en cada bloque que atraviesa un movimiento. Por eso el recargo va aquí.
+  if (passPenalty) movements.exclusionAreasStep.push(passPenalty);
   return movements;
 }

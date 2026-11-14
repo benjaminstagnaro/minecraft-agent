@@ -132,7 +132,19 @@ minecraft-agent/
 ## Estado actual
 
 - [x] Etapa 1: Base: prueba end-to-end `npm run smoke:follow` OK 7/7 (2 corridas) y **probada por Benjamín en el juego** (sígueme/para/ven, perderlo de vista, torre inalcanzable, cruzar el mar, parkour, bayas). Cerrada: merge a `main` y publicada en https://github.com/benjaminstagnaro/minecraft-agent (2026-11-11).
-- [ ] Etapa 2: Acciones (siguiente).
+- [x] Etapa 2: Acciones: `estado`, `junta N <bloque>`, `tala este árbol`, `craftea N <ítem>`, `pon <bloque> en x y z`. Pruebas e2e: collect 13/13, craft 8/8, follow 8/8, place 9/9. **Probada por Benjamín en el juego** (3 rondas). Cerrada: merge a `main` y push (2026-11-14).
+  - "junta" termina cada árbol (de abajo hacia arriba) antes de pasar a otro y prefiere no romper hojas (reportado por Benjamín en el juego; smoke:collect con 4 robles pegados: 3/3, a lo más 1 árbol a medias).
+  - Arreglos tras la 2ª prueba de Benjamín en el juego (2026-11-12), con commit y pruebas e2e OK (collect 10/10, craft 8/8, follow 8/8, place 9/9):
+    - Caída al talar un abeto alto: el bot tenía tierra (sobrante de smoke:place), armó un pilar, se paró sobre el último tronco y lo picó (cayó ~6, 3 de vida). Ahora: `GoalDigFrom` (nunca parado encima de lo que pica), `digHazard`, `maxDropDown=3`, y baja picando su propio andamio al terminar cada árbol (no queda atrapado arriba ni deja pilares).
+    - Lentitud (15 s por tronco): picaba en el aire (×5 más lento). Ahora espera a pisar suelo (`settle`).
+    - Troncos tirados sin recoger (lo vio Benjamín): se para sobre la celda del ítem, no se rinde con los demás, y rompe la hoja de abajo si un ítem quedó sobre la copa.
+    - Crafteo: mensaje "me faltan 1 tablones de roble (tengo 2 de 3)" + sugerencia "dime craftea 4 tablones de roble".
+  - 3ª prueba de Benjamín en el juego (2026-11-14): abeto alto con tierra ✅, recoge todo ✅, crafteo con el mensaje nuevo ✅. Observó: (a) "para" en medio dejaba la tierra del pilar puesta → ahora baja y la quita aunque lo cancelen (el ejecutor espera esa limpieza antes de la orden siguiente); (b) siempre iba al árbol más cercano → nuevo `@bot tala este árbol` (el que mira el jugador: rayo desde sus ojos que atraviesa hojas, `src/tools/lookAt.ts`; parámetro `tree` en collect_block). `estado` ahora en español. smoke:collect 13/13 (fases 6 y 7 nuevas), craft 8/8, follow 8/8, place 9/9.
+  - Benjamín no probó `pon ... x y z`: dice que nadie escribirá coordenadas. De acuerdo: es para que Claude lo use (etapa 3: "pon una antorcha aquí"; etapa 4: planos). Queda cubierto por smoke:place.
+  - 4ª prueba (2026-11-14): `tala este árbol` ✅ (8 troncos) y "para" arriba del pilar ✅ (bajó 4 bloques). Un caso dijo "Ese tronco parece de una construcción" (01:32): preguntado a Benjamín qué miraba; si era un árbol normal, revisar `isNaturalLog`. Detalle: dice "Voy a talar ese árbol" antes de validar el tronco.
+  - Pendientes menores: "1 palos" (plural con 1); que el bot se defienda o huya de mobs (Benjamín le pegó 1 de vida para probar).
+- [ ] Etapa 3: Cerebro (siguiente).
+  - Iterar rápido las fases de árboles altos (5 a 7): `npm run smoke:collect -- --solo-alto`. Logs de depuración: iniciar el agente con `LOG_LEVEL=debug`.
 - Versión del servidor de pruebas: **vanilla 26.1.2** (protocolo 775). Benjamín se conecta con el launcher en **26.1.2**.
   - mineflayer 4.39.0 (última release, sep 2026) llega hasta 26.1.x; 26.3 (protocolo 777) no está soportada.
   - Java 25: los scripts usan el del launcher de Minecraft automáticamente (el `java` del PATH es Java 8).
@@ -143,4 +155,15 @@ minecraft-agent/
 - Descartado como causa: el paquete `tick_end` (mineflayer no lo envía; necesario recién en 26.3, ya arreglado en mineflayer master, PR #4137) y el flag `hasHorizontalCollision`. Ninguno cambió nada en 26.1.
 - `bot.game.hardcore` es siempre `false` en 26.1 (bug de mineflayer): la protección lee `isHardcore` del paquete de login crudo.
 - Bloques atravesables dañinos (`sweet_berry_bush`, `wither_rose`, `powder_snow`, `soul_fire`): no basta con `blocksToAvoid`, porque el bot los roza con su caja de 0,6 al doblar. Se usa además un costo por casilla vecina (`exclusionAreasStep`, `src/bot/pathing.ts`). La prueba e2e mide la vida del agente por RCON.
+- `GoalLookAtBlock` del pathfinder exige línea de visión con el mundo actual: con árboles de hojas bajas da "No path" intermitente. Usar `GoalWithinReach` (`src/tools/goals.ts`): el servidor solo exige distancia para picar.
+- Crafteo con mineflayer en 26.1: los clics salen sin esperar confirmación y chocan con las actualizaciones de `stateId` del servidor (receta a medias, ingredientes atrapados en la cuadrícula 2x2). `craftItem.ts` espera respuesta tras cada clic, sincroniza con `_syncWindow`, vacía la cuadrícula (`close_window` 0) y verifica contra el inventario real. Issue relacionado abierto: mineflayer #4161 (`set_player_inventory` mal mapeado).
+- Al editar archivos con scripts de Node, usar `split/join` y no `String.replace` con texto que tenga `$`: en el reemplazo, `` $` `` inserta "todo lo anterior" (rompió `commands.ts` una vez).
+- Esos scripts de edición (heredoc → template literal) pierden las barras invertidas: `/(\d+)/` quedó `/(d+)/` y `\s+` quedó `s+` (2 veces). Para código con regex, usar la herramienta Edit directo.
+- `bot.world.raycast` (prismarine-world): los tipos dicen que devuelve `{x, y, z, face}` y que el filtro recibe 1 argumento, pero con filtro devuelve el bloque completo (con `position`). Ver `src/tools/lookAt.ts`. Los jugadores mandan su giro de cabeza (`entity.headYaw`) y `pitch`.
+- Al probar "para" sobre el andamio, esperar a que el bot esté PARADO arriba (pies a altura entera): a mitad del salto aún no pone el bloque y la prueba pasa sin ejercitar nada.
+- `tsx -e` con imports `.ts` falla en silencio en este equipo: para scripts temporales, usar un archivo en `scripts/`.
+- Para buscar procesos del agente, filtrar por `src[/\]index.ts` en la línea de comando (NO por `minecraft-agent`: `node --import tsx src/index.ts` no incluye la carpeta y el filtro no lo ve).
+- Picar en el aire es 5 veces más lento (regla de Minecraft; `bot.digTime` lo refleja). `pathfinder.stop()` NO frena en seco: termina el movimiento en curso (ej: saltar y poner un bloque del pilar), que se cruza con lo siguiente. Antes de picar: esperar `!isMoving() && !isBuilding() && onGround`.
+- `GoalNear` del pathfinder trabaja con celdas enteras: "a 1 bloque" puede dejar al bot a 1,6 del ítem, fuera del radio de recogida. Para recoger, pararse sobre la celda del ítem (rango 0).
+- El pathfinder arma pilares con tierra/adoquín si los tiene (`movements.scafoldingBlocks`, así, con una "f"). No avisa cuando pone un bloque: `collectBlock.ts` lo detecta con `blockUpdate` cerca del bot.
 - Windows: detener un proceso `npm run ...` deja vivo al hijo `node`. Revisar procesos huérfanos (dos agentes con el mismo nombre se expulsan mutuamente; el agente ahora detecta `duplicate_login` y no reintenta).
